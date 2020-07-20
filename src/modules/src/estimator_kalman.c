@@ -213,7 +213,9 @@ static StaticSemaphore_t dataMutexBuffer;
  * For more information, refer to the paper
  */
 
-static kalmanCoreData_t coreData;
+// static kalmanCoreData_t coreData; // data updated from all sensor measurements
+static kalmanCoreData_t coreDataNoFlow; // data updated from all but flow measurements
+static kalmanCoreData_t coreDataNoSweep; // data updated from all but sweep measurements
 
 /**
  * Internal variables. Note that static declaration results in default initialization (to 0)
@@ -234,7 +236,9 @@ static uint32_t lastFlightCmd;
 static uint32_t takeoffTime;
 
 // Data used to enable the task and stabilizer loop to run with minimal locking
-static state_t taskEstimatorState; // The estimator state produced by the task, copied to the stabilzer when needed.
+// static state_t taskEstimatorState; // The estimator state produced by the task, copied to the stabilizer when needed.
+static state_t taskEstimatorStateNoFlow; // The estimator state produced by the task, without including flow measurements, copied to the stabilizer when needed.
+static state_t taskEstimatorStateNoSweep; // The estimator state produced by the task, without including sweep measurements, copied to the stabilizer when needed.
 static Axis3f gyroSnapshot; // A snpashot of the latest gyro data, used by the task
 static Axis3f accSnapshot; // A snpashot of the latest acc data, used by the task
 
@@ -268,7 +272,9 @@ static inline float arm_sqrt(float32_t in)
 
 static void kalmanTask(void* parameters);
 static bool predictStateForward(uint32_t osTick, float dt);
-static bool updateQueuedMeasurments(const Axis3f *gyro, const uint32_t tick);
+// static bool updateQueuedMeasurments(const Axis3f *gyro, const uint32_t tick);
+static bool updateQueuedMeasurmentsNoFlow(const Axis3f *gyro, const uint32_t tick);
+static bool updateQueuedMeasurmentsNoSweep(const Axis3f *gyro, const uint32_t tick);
 
 STATIC_MEM_TASK_ALLOC(kalmanTask, 3 * configMINIMAL_STACK_SIZE);
 
@@ -310,14 +316,28 @@ static void kalmanTask(void* parameters) {
   while (true) {
     xSemaphoreTake(runTaskSemaphore, portMAX_DELAY);
 
+    // // If the client triggers an estimator reset via parameter update
+    // if (coreData.resetEstimation) {
+    //   estimatorKalmanInit();
+    //   coreData.resetEstimation = false;
+    // }
+
     // If the client triggers an estimator reset via parameter update
-    if (coreData.resetEstimation) {
+    if (coreDataNoFlow.resetEstimation) {
       estimatorKalmanInit();
-      coreData.resetEstimation = false;
+      coreDataNoFlow.resetEstimation = false;
+    }
+
+    // If the client triggers an estimator reset via parameter update
+    if (coreDataNoSweep.resetEstimation) {
+      estimatorKalmanInit();
+      coreDataNoSweep.resetEstimation = false;
     }
 
     // Tracks whether an update to the state has been made, and the state therefore requires finalization
-    bool doneUpdate = false;
+    // bool doneUpdate = false;
+    bool doneUpdateNoFlow = false;
+    bool doneUpdateNoSweep = false;
 
     uint32_t osTick = xTaskGetTickCount(); // would be nice if this had a precision higher than 1ms...
 
@@ -330,7 +350,9 @@ static void kalmanTask(void* parameters) {
       float dt = T2S(osTick - lastPrediction);
       if (predictStateForward(osTick, dt)) {
         lastPrediction = osTick;
-        doneUpdate = true;
+        // doneUpdate = true;
+        doneUpdateNoFlow = true;
+        doneUpdateNoSweep = true;
         STATS_CNT_RATE_EVENT(&predictionCounter);
       }
 
@@ -343,7 +365,9 @@ static void kalmanTask(void* parameters) {
     {
       float dt = T2S(osTick - lastPNUpdate);
       if (dt > 0.0f) {
-        kalmanCoreAddProcessNoise(&coreData, dt);
+        // kalmanCoreAddProcessNoise(&coreData, dt);
+        kalmanCoreAddProcessNoise(&coreDataNoFlow, dt);
+        kalmanCoreAddProcessNoise(&coreDataNoSweep, dt);
         lastPNUpdate = osTick;
       }
     }
@@ -362,13 +386,33 @@ static void kalmanTask(void* parameters) {
         baroAccumulatorCount = 0;
         xSemaphoreGive(dataMutex);
 
-        kalmanCoreUpdateWithBaro(&coreData, baroAslAverage, quadIsFlying);
+        // kalmanCoreUpdateWithBaro(&coreData, baroAslAverage, quadIsFlying);
+        kalmanCoreUpdateWithBaro(&coreDataNoFlow, baroAslAverage, quadIsFlying);
+        kalmanCoreUpdateWithBaro(&coreDataNoSweep, baroAslAverage, quadIsFlying);
 
         nextBaroUpdate = osTick + S2T(1.0f / BARO_RATE);
-        doneUpdate = true;
+        // doneUpdate = true;
+        doneUpdateNoFlow = true;
+        doneUpdateNoSweep = true;
 
         STATS_CNT_RATE_EVENT(&baroUpdateCounter);
       }
+    }
+
+    // {
+    //   Axis3f gyro;
+    //   xSemaphoreTake(dataMutex, portMAX_DELAY);
+    //   memcpy(&gyro, &gyroSnapshot, sizeof(gyro));
+    //   xSemaphoreGive(dataMutex);
+    //   doneUpdate = doneUpdate || updateQueuedMeasurments(&gyro, osTick);
+    // }
+
+    {
+      Axis3f gyro;
+      xSemaphoreTake(dataMutex, portMAX_DELAY);
+      memcpy(&gyro, &gyroSnapshot, sizeof(gyro));
+      xSemaphoreGive(dataMutex);
+      doneUpdateNoFlow = doneUpdateNoFlow || updateQueuedMeasurmentsNoFlow(&gyro, osTick);
     }
 
     {
@@ -376,7 +420,7 @@ static void kalmanTask(void* parameters) {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       memcpy(&gyro, &gyroSnapshot, sizeof(gyro));
       xSemaphoreGive(dataMutex);
-      doneUpdate = doneUpdate || updateQueuedMeasurments(&gyro, osTick);
+      doneUpdateNoSweep = doneUpdateNoSweep || updateQueuedMeasurmentsNoSweep(&gyro, osTick);
     }
 
     /**
@@ -386,12 +430,32 @@ static void kalmanTask(void* parameters) {
      * - correctness of the covariance matrix is ensured
      */
 
-    if (doneUpdate)
+    // if (doneUpdate)
+    // {
+    //   kalmanCoreFinalize(&coreData, osTick);
+    //   STATS_CNT_RATE_EVENT(&finalizeCounter);
+    //   if (! kalmanSupervisorIsStateWithinBounds(&coreData)) {
+    //     coreData.resetEstimation = true;
+    //     DEBUG_PRINT("State out of bounds, resetting\n");
+    //   }
+    // }
+
+    if (doneUpdateNoFlow)
     {
-      kalmanCoreFinalize(&coreData, osTick);
+      kalmanCoreFinalize(&coreDataNoFlow, osTick);
       STATS_CNT_RATE_EVENT(&finalizeCounter);
-      if (! kalmanSupervisorIsStateWithinBounds(&coreData)) {
-        coreData.resetEstimation = true;
+      if (! kalmanSupervisorIsStateWithinBounds(&coreDataNoFlow)) {
+        coreDataNoFlow.resetEstimation = true;
+        DEBUG_PRINT("State out of bounds, resetting\n");
+      }
+    }
+
+    if (doneUpdateNoSweep)
+    {
+      kalmanCoreFinalize(&coreDataNoSweep, osTick);
+      STATS_CNT_RATE_EVENT(&finalizeCounter);
+      if (! kalmanSupervisorIsStateWithinBounds(&coreDataNoSweep)) {
+        coreDataNoSweep.resetEstimation = true;
         DEBUG_PRINT("State out of bounds, resetting\n");
       }
     }
@@ -400,15 +464,24 @@ static void kalmanTask(void* parameters) {
      * Finally, the internal state is externalized.
      * This is done every round, since the external state includes some sensor data
      */
+    // xSemaphoreTake(dataMutex, portMAX_DELAY);
+    // kalmanCoreExternalizeState(&coreData, &taskEstimatorState, &accSnapshot, osTick);
+    // xSemaphoreGive(dataMutex);
+
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    kalmanCoreExternalizeState(&coreData, &taskEstimatorState, &accSnapshot, osTick);
+    kalmanCoreExternalizeState(&coreDataNoFlow, &taskEstimatorStateNoFlow, &accSnapshot, osTick);
+    xSemaphoreGive(dataMutex);
+
+    xSemaphoreTake(dataMutex, portMAX_DELAY);
+    kalmanCoreExternalizeState(&coreDataNoSweep, &taskEstimatorStateNoSweep, &accSnapshot, osTick);
     xSemaphoreGive(dataMutex);
 
     STATS_CNT_RATE_EVENT(&updateCounter);
   }
 }
 
-void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick)
+// void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick)
+void estimatorKalman(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick)
 {
   // This function is called from the stabilizer loop. It is important that this call returns
   // as quickly as possible. The dataMutex must only be locked short periods by the task.
@@ -447,8 +520,12 @@ void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, 
   memcpy(&gyroSnapshot, &sensors->gyro, sizeof(gyroSnapshot));
   memcpy(&accSnapshot, &sensors->acc, sizeof(accSnapshot));
 
-  // Copy the latest state, calculated by the task
-  memcpy(state, &taskEstimatorState, sizeof(state_t));
+  // // Copy the latest state, calculated by the task
+  // memcpy(state, &taskEstimatorState, sizeof(state_t));
+
+  memcpy(stateNoFlow, &taskEstimatorStateNoFlow, sizeof(state_t));
+  memcpy(stateNoSweep, &taskEstimatorStateNoSweep, sizeof(state_t));
+
   xSemaphoreGive(dataMutex);
 
   xSemaphoreGive(runTaskSemaphore);
@@ -502,13 +579,95 @@ static bool predictStateForward(uint32_t osTick, float dt) {
   }
   quadIsFlying = (osTick-lastFlightCmd) < IN_FLIGHT_TIME_THRESHOLD;
 
-  kalmanCorePredict(&coreData, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
+  // kalmanCorePredict(&coreData, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
+  kalmanCorePredict(&coreDataNoFlow, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
+  kalmanCorePredict(&coreDataNoSweep, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
 
   return true;
 }
 
+// /*
+// coreData is kalman updated using all individual sensor measurements.
+// */
+// static bool updateQueuedMeasurments(const Axis3f *gyro, const uint32_t tick) {
+//   bool doneUpdate = false;
+//   /**
+//    * Sensor measurements can come in sporadically and faster than the stabilizer loop frequency,
+//    * we therefore consume all measurements since the last loop, rather than accumulating
+//    */
 
-static bool updateQueuedMeasurments(const Axis3f *gyro, const uint32_t tick) {
+//   tofMeasurement_t tof;
+//   while (stateEstimatorHasTOFPacket(&tof))
+//   {
+//     kalmanCoreUpdateWithTof(&coreData, &tof);
+//     doneUpdate = true;
+//   }
+
+//   yawErrorMeasurement_t yawError;
+//   while (stateEstimatorHasYawErrorPacket(&yawError))
+//   {
+//     kalmanCoreUpdateWithYawError(&coreData, &yawError);
+//     doneUpdate = true;
+//   }
+
+//   heightMeasurement_t height;
+//   while (stateEstimatorHasHeightPacket(&height))
+//   {
+//     kalmanCoreUpdateWithAbsoluteHeight(&coreData, &height);
+//     doneUpdate = true;
+//   }
+
+//   distanceMeasurement_t dist;
+//   while (stateEstimatorHasDistanceMeasurement(&dist))
+//   {
+//     kalmanCoreUpdateWithDistance(&coreData, &dist);
+//     doneUpdate = true;
+//   }
+
+//   positionMeasurement_t pos;
+//   while (stateEstimatorHasPositionMeasurement(&pos))
+//   {
+//     kalmanCoreUpdateWithPosition(&coreData, &pos);
+//     doneUpdate = true;
+//   }
+
+//   poseMeasurement_t pose;
+//   while (stateEstimatorHasPoseMeasurement(&pose))
+//   {
+//     kalmanCoreUpdateWithPose(&coreData, &pose);
+//     doneUpdate = true;
+//   }
+
+//   tdoaMeasurement_t tdoa;
+//   while (stateEstimatorHasTDOAPacket(&tdoa))
+//   {
+//     kalmanCoreUpdateWithTDOA(&coreData, &tdoa);
+//     doneUpdate = true;
+//   }
+
+//   flowMeasurement_t flow;
+//   while (stateEstimatorHasFlowPacket(&flow))
+//   {
+//     kalmanCoreUpdateWithFlow(&coreData, &flow, gyro);
+//     doneUpdate = true;
+//   }
+
+//   sweepAngleMeasurement_t angles;
+//   while (stateEstimatorHasSweepAnglesPacket(&angles))
+//   {
+//     kalmanCoreUpdateWithSweepAngles(&coreData, &angles, tick);
+//     doneUpdate = true;
+//   }
+
+//   return doneUpdate;
+// }
+
+
+/*
+Exactly the same function as `updateQueuedMeasurments` except flow measurements from
+flow deck are not included. Here, coreData is kalman updated using all sensor measurements except flow deck measurements/
+*/
+static bool updateQueuedMeasurmentsNoFlow(const Axis3f *gyro, const uint32_t tick) {
   bool doneUpdate = false;
   /**
    * Sensor measurements can come in sporadically and faster than the stabilizer loop frequency,
@@ -518,68 +677,133 @@ static bool updateQueuedMeasurments(const Axis3f *gyro, const uint32_t tick) {
   tofMeasurement_t tof;
   while (stateEstimatorHasTOFPacket(&tof))
   {
-    kalmanCoreUpdateWithTof(&coreData, &tof);
+    kalmanCoreUpdateWithTof(&coreDataNoFlow, &tof);
     doneUpdate = true;
   }
 
   yawErrorMeasurement_t yawError;
   while (stateEstimatorHasYawErrorPacket(&yawError))
   {
-    kalmanCoreUpdateWithYawError(&coreData, &yawError);
+    kalmanCoreUpdateWithYawError(&coreDataNoFlow, &yawError);
     doneUpdate = true;
   }
 
   heightMeasurement_t height;
   while (stateEstimatorHasHeightPacket(&height))
   {
-    kalmanCoreUpdateWithAbsoluteHeight(&coreData, &height);
+    kalmanCoreUpdateWithAbsoluteHeight(&coreDataNoFlow, &height);
     doneUpdate = true;
   }
 
   distanceMeasurement_t dist;
   while (stateEstimatorHasDistanceMeasurement(&dist))
   {
-    kalmanCoreUpdateWithDistance(&coreData, &dist);
+    kalmanCoreUpdateWithDistance(&coreDataNoFlow, &dist);
     doneUpdate = true;
   }
 
   positionMeasurement_t pos;
   while (stateEstimatorHasPositionMeasurement(&pos))
   {
-    kalmanCoreUpdateWithPosition(&coreData, &pos);
+    kalmanCoreUpdateWithPosition(&coreDataNoFlow, &pos);
     doneUpdate = true;
   }
 
   poseMeasurement_t pose;
   while (stateEstimatorHasPoseMeasurement(&pose))
   {
-    kalmanCoreUpdateWithPose(&coreData, &pose);
+    kalmanCoreUpdateWithPose(&coreDataNoFlow, &pose);
     doneUpdate = true;
   }
 
   tdoaMeasurement_t tdoa;
   while (stateEstimatorHasTDOAPacket(&tdoa))
   {
-    kalmanCoreUpdateWithTDOA(&coreData, &tdoa);
-    doneUpdate = true;
-  }
-
-  flowMeasurement_t flow;
-  while (stateEstimatorHasFlowPacket(&flow))
-  {
-    kalmanCoreUpdateWithFlow(&coreData, &flow, gyro);
+    kalmanCoreUpdateWithTDOA(&coreDataNoFlow, &tdoa);
     doneUpdate = true;
   }
 
   sweepAngleMeasurement_t angles;
   while (stateEstimatorHasSweepAnglesPacket(&angles))
   {
-    kalmanCoreUpdateWithSweepAngles(&coreData, &angles, tick);
+    kalmanCoreUpdateWithSweepAngles(&coreDataNoFlow, &angles, tick);
     doneUpdate = true;
   }
 
   return doneUpdate;
 }
+
+
+/*
+Exactly the same function as `updateQueuedMeasurments` except sweep angle measurements
+from lighthouse deck are not included. Here, coreData is kalman updated using all sensor measurements except lighthouse deck measurements/
+*/
+static bool updateQueuedMeasurmentsNoSweep(const Axis3f *gyro, const uint32_t tick) {
+  bool doneUpdate = false;
+  /**
+   * Sensor measurements can come in sporadically and faster than the stabilizer loop frequency,
+   * we therefore consume all measurements since the last loop, rather than accumulating
+   */
+
+  tofMeasurement_t tof;
+  while (stateEstimatorHasTOFPacket(&tof))
+  {
+    kalmanCoreUpdateWithTof(&coreDataNoSweep, &tof);
+    doneUpdate = true;
+  }
+
+  yawErrorMeasurement_t yawError;
+  while (stateEstimatorHasYawErrorPacket(&yawError))
+  {
+    kalmanCoreUpdateWithYawError(&coreDataNoSweep, &yawError);
+    doneUpdate = true;
+  }
+
+  heightMeasurement_t height;
+  while (stateEstimatorHasHeightPacket(&height))
+  {
+    kalmanCoreUpdateWithAbsoluteHeight(&coreDataNoSweep, &height);
+    doneUpdate = true;
+  }
+
+  distanceMeasurement_t dist;
+  while (stateEstimatorHasDistanceMeasurement(&dist))
+  {
+    kalmanCoreUpdateWithDistance(&coreDataNoSweep, &dist);
+    doneUpdate = true;
+  }
+
+  positionMeasurement_t pos;
+  while (stateEstimatorHasPositionMeasurement(&pos))
+  {
+    kalmanCoreUpdateWithPosition(&coreDataNoSweep, &pos);
+    doneUpdate = true;
+  }
+
+  poseMeasurement_t pose;
+  while (stateEstimatorHasPoseMeasurement(&pose))
+  {
+    kalmanCoreUpdateWithPose(&coreDataNoSweep, &pose);
+    doneUpdate = true;
+  }
+
+  tdoaMeasurement_t tdoa;
+  while (stateEstimatorHasTDOAPacket(&tdoa))
+  {
+    kalmanCoreUpdateWithTDOA(&coreDataNoSweep, &tdoa);
+    doneUpdate = true;
+  }
+
+  flowMeasurement_t flow;
+  while (stateEstimatorHasFlowPacket(&flow))
+  {
+    kalmanCoreUpdateWithFlow(&coreDataNoSweep, &flow, gyro);
+    doneUpdate = true;
+  }
+
+  return doneUpdate;
+}
+
 
 // Called when this estimator is activated
 void estimatorKalmanInit(void) {
@@ -602,7 +826,9 @@ void estimatorKalmanInit(void) {
   baroAccumulatorCount = 0;
   xSemaphoreGive(dataMutex);
 
-  kalmanCoreInit(&coreData);
+  // kalmanCoreInit(&coreData);
+  kalmanCoreInit(&coreDataNoFlow);
+  kalmanCoreInit(&coreDataNoSweep);
 }
 
 static bool appendMeasurement(xQueueHandle queue, void *measurement)
@@ -692,50 +918,120 @@ bool estimatorKalmanTest(void)
   return isInit;
 }
 
-void estimatorKalmanGetEstimatedPos(point_t* pos) {
-  pos->x = coreData.S[KC_STATE_X];
-  pos->y = coreData.S[KC_STATE_Y];
-  pos->z = coreData.S[KC_STATE_Z];
+// void estimatorKalmanGetEstimatedPos(point_t* pos) {
+//   pos->x = coreData.S[KC_STATE_X];
+//   pos->y = coreData.S[KC_STATE_Y];
+//   pos->z = coreData.S[KC_STATE_Z];
+// }
+
+// void estimatorKalmanGetEstimatedRot(float * rotationMatrix) {
+//   memcpy(rotationMatrix, coreData.R, 9*sizeof(float));
+// }
+
+void estimatorKalmanGetEstimatedPosNoFlow(point_t* pos) {
+  pos->x = coreDataNoFlow.S[KC_STATE_X];
+  pos->y = coreDataNoFlow.S[KC_STATE_Y];
+  pos->z = coreDataNoFlow.S[KC_STATE_Z];
 }
 
-void estimatorKalmanGetEstimatedRot(float * rotationMatrix) {
-  memcpy(rotationMatrix, coreData.R, 9*sizeof(float));
+void estimatorKalmanGetEstimatedRotNoFlow(float * rotationMatrix) {
+  memcpy(rotationMatrix, coreDataNoFlow.R, 9*sizeof(float));
 }
+
+void estimatorKalmanGetEstimatedPosNoSweep(point_t* pos) {
+  pos->x = coreDataNoSweep.S[KC_STATE_X];
+  pos->y = coreDataNoSweep.S[KC_STATE_Y];
+  pos->z = coreDataNoSweep.S[KC_STATE_Z];
+}
+
+void estimatorKalmanGetEstimatedRotNoSweep(float * rotationMatrix) {
+  memcpy(rotationMatrix, coreDataNoSweep.R, 9*sizeof(float));
+}
+
+// // Temporary development groups
+// LOG_GROUP_START(kalman_states)
+//   LOG_ADD(LOG_FLOAT, ox, &coreData.S[KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, oy, &coreData.S[KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, vx, &coreData.S[KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, vy, &coreData.S[KC_STATE_PY])
+// LOG_GROUP_STOP(kalman_states)
 
 // Temporary development groups
-LOG_GROUP_START(kalman_states)
-  LOG_ADD(LOG_FLOAT, ox, &coreData.S[KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, oy, &coreData.S[KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, vx, &coreData.S[KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, vy, &coreData.S[KC_STATE_PY])
-LOG_GROUP_STOP(kalman_states)
+LOG_GROUP_START(kalman_statesNoFlow)
+  LOG_ADD(LOG_FLOAT, ox, &coreDataNoFlow.S[KC_STATE_X])
+  LOG_ADD(LOG_FLOAT, oy, &coreDataNoFlow.S[KC_STATE_Y])
+  LOG_ADD(LOG_FLOAT, vx, &coreDataNoFlow.S[KC_STATE_PX])
+  LOG_ADD(LOG_FLOAT, vy, &coreDataNoFlow.S[KC_STATE_PY])
+LOG_GROUP_STOP(kalman_statesNoFlow)
 
+// Temporary development groups
+LOG_GROUP_START(kalman_statesNoSweep)
+  LOG_ADD(LOG_FLOAT, ox, &coreDataNoSweep.S[KC_STATE_X])
+  LOG_ADD(LOG_FLOAT, oy, &coreDataNoSweep.S[KC_STATE_Y])
+  LOG_ADD(LOG_FLOAT, vx, &coreDataNoSweep.S[KC_STATE_PX])
+  LOG_ADD(LOG_FLOAT, vy, &coreDataNoSweep.S[KC_STATE_PY])
+LOG_GROUP_STOP(kalman_statesNoSweep)
+
+
+// // Stock log groups
+// LOG_GROUP_START(kalman)
+//   LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
+//   LOG_ADD(LOG_FLOAT, stateX, &coreData.S[KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, stateY, &coreData.S[KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, stateZ, &coreData.S[KC_STATE_Z])
+//   LOG_ADD(LOG_FLOAT, statePX, &coreData.S[KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, statePY, &coreData.S[KC_STATE_PY])
+//   LOG_ADD(LOG_FLOAT, statePZ, &coreData.S[KC_STATE_PZ])
+//   LOG_ADD(LOG_FLOAT, stateD0, &coreData.S[KC_STATE_D0])
+//   LOG_ADD(LOG_FLOAT, stateD1, &coreData.S[KC_STATE_D1])
+//   LOG_ADD(LOG_FLOAT, stateD2, &coreData.S[KC_STATE_D2])
+//   LOG_ADD(LOG_FLOAT, varX, &coreData.P[KC_STATE_X][KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, varY, &coreData.P[KC_STATE_Y][KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, varZ, &coreData.P[KC_STATE_Z][KC_STATE_Z])
+//   LOG_ADD(LOG_FLOAT, varPX, &coreData.P[KC_STATE_PX][KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, varPY, &coreData.P[KC_STATE_PY][KC_STATE_PY])
+//   LOG_ADD(LOG_FLOAT, varPZ, &coreData.P[KC_STATE_PZ][KC_STATE_PZ])
+//   LOG_ADD(LOG_FLOAT, varD0, &coreData.P[KC_STATE_D0][KC_STATE_D0])
+//   LOG_ADD(LOG_FLOAT, varD1, &coreData.P[KC_STATE_D1][KC_STATE_D1])
+//   LOG_ADD(LOG_FLOAT, varD2, &coreData.P[KC_STATE_D2][KC_STATE_D2])
+//   LOG_ADD(LOG_FLOAT, q0, &coreData.q[0])
+//   LOG_ADD(LOG_FLOAT, q1, &coreData.q[1])
+//   LOG_ADD(LOG_FLOAT, q2, &coreData.q[2])
+//   LOG_ADD(LOG_FLOAT, q3, &coreData.q[3])
+
+//   STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtBaro, &baroUpdateCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
+// LOG_GROUP_STOP(kalman)
 
 // Stock log groups
-LOG_GROUP_START(kalman)
+LOG_GROUP_START(kalmanNoFlow)
   LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
-  LOG_ADD(LOG_FLOAT, stateX, &coreData.S[KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, stateY, &coreData.S[KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, stateZ, &coreData.S[KC_STATE_Z])
-  LOG_ADD(LOG_FLOAT, statePX, &coreData.S[KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, statePY, &coreData.S[KC_STATE_PY])
-  LOG_ADD(LOG_FLOAT, statePZ, &coreData.S[KC_STATE_PZ])
-  LOG_ADD(LOG_FLOAT, stateD0, &coreData.S[KC_STATE_D0])
-  LOG_ADD(LOG_FLOAT, stateD1, &coreData.S[KC_STATE_D1])
-  LOG_ADD(LOG_FLOAT, stateD2, &coreData.S[KC_STATE_D2])
-  LOG_ADD(LOG_FLOAT, varX, &coreData.P[KC_STATE_X][KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, varY, &coreData.P[KC_STATE_Y][KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, varZ, &coreData.P[KC_STATE_Z][KC_STATE_Z])
-  LOG_ADD(LOG_FLOAT, varPX, &coreData.P[KC_STATE_PX][KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, varPY, &coreData.P[KC_STATE_PY][KC_STATE_PY])
-  LOG_ADD(LOG_FLOAT, varPZ, &coreData.P[KC_STATE_PZ][KC_STATE_PZ])
-  LOG_ADD(LOG_FLOAT, varD0, &coreData.P[KC_STATE_D0][KC_STATE_D0])
-  LOG_ADD(LOG_FLOAT, varD1, &coreData.P[KC_STATE_D1][KC_STATE_D1])
-  LOG_ADD(LOG_FLOAT, varD2, &coreData.P[KC_STATE_D2][KC_STATE_D2])
-  LOG_ADD(LOG_FLOAT, q0, &coreData.q[0])
-  LOG_ADD(LOG_FLOAT, q1, &coreData.q[1])
-  LOG_ADD(LOG_FLOAT, q2, &coreData.q[2])
-  LOG_ADD(LOG_FLOAT, q3, &coreData.q[3])
+  LOG_ADD(LOG_FLOAT, stateX, &coreDataNoFlow.S[KC_STATE_X])
+  LOG_ADD(LOG_FLOAT, stateY, &coreDataNoFlow.S[KC_STATE_Y])
+  LOG_ADD(LOG_FLOAT, stateZ, &coreDataNoFlow.S[KC_STATE_Z])
+  LOG_ADD(LOG_FLOAT, statePX, &coreDataNoFlow.S[KC_STATE_PX])
+  LOG_ADD(LOG_FLOAT, statePY, &coreDataNoFlow.S[KC_STATE_PY])
+  LOG_ADD(LOG_FLOAT, statePZ, &coreDataNoFlow.S[KC_STATE_PZ])
+  LOG_ADD(LOG_FLOAT, stateD0, &coreDataNoFlow.S[KC_STATE_D0])
+  LOG_ADD(LOG_FLOAT, stateD1, &coreDataNoFlow.S[KC_STATE_D1])
+  LOG_ADD(LOG_FLOAT, stateD2, &coreDataNoFlow.S[KC_STATE_D2])
+  LOG_ADD(LOG_FLOAT, varX, &coreDataNoFlow.P[KC_STATE_X][KC_STATE_X])
+  LOG_ADD(LOG_FLOAT, varY, &coreDataNoFlow.P[KC_STATE_Y][KC_STATE_Y])
+  LOG_ADD(LOG_FLOAT, varZ, &coreDataNoFlow.P[KC_STATE_Z][KC_STATE_Z])
+  LOG_ADD(LOG_FLOAT, varPX, &coreDataNoFlow.P[KC_STATE_PX][KC_STATE_PX])
+  LOG_ADD(LOG_FLOAT, varPY, &coreDataNoFlow.P[KC_STATE_PY][KC_STATE_PY])
+  LOG_ADD(LOG_FLOAT, varPZ, &coreDataNoFlow.P[KC_STATE_PZ][KC_STATE_PZ])
+  LOG_ADD(LOG_FLOAT, varD0, &coreDataNoFlow.P[KC_STATE_D0][KC_STATE_D0])
+  LOG_ADD(LOG_FLOAT, varD1, &coreDataNoFlow.P[KC_STATE_D1][KC_STATE_D1])
+  LOG_ADD(LOG_FLOAT, varD2, &coreDataNoFlow.P[KC_STATE_D2][KC_STATE_D2])
+  LOG_ADD(LOG_FLOAT, q0, &coreDataNoFlow.q[0])
+  LOG_ADD(LOG_FLOAT, q1, &coreDataNoFlow.q[1])
+  LOG_ADD(LOG_FLOAT, q2, &coreDataNoFlow.q[2])
+  LOG_ADD(LOG_FLOAT, q3, &coreDataNoFlow.q[3])
 
   STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
   STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
@@ -743,9 +1039,53 @@ LOG_GROUP_START(kalman)
   STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
   STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
   STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
-LOG_GROUP_STOP(kalman)
+LOG_GROUP_STOP(kalmanNoFlow)
 
-PARAM_GROUP_START(kalman)
-  PARAM_ADD(PARAM_UINT8, resetEstimation, &coreData.resetEstimation)
+// Stock log groups
+LOG_GROUP_START(kalmanNoSweep)
+  LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
+  LOG_ADD(LOG_FLOAT, stateX, &coreDataNoSweep.S[KC_STATE_X])
+  LOG_ADD(LOG_FLOAT, stateY, &coreDataNoSweep.S[KC_STATE_Y])
+  LOG_ADD(LOG_FLOAT, stateZ, &coreDataNoSweep.S[KC_STATE_Z])
+  LOG_ADD(LOG_FLOAT, statePX, &coreDataNoSweep.S[KC_STATE_PX])
+  LOG_ADD(LOG_FLOAT, statePY, &coreDataNoSweep.S[KC_STATE_PY])
+  LOG_ADD(LOG_FLOAT, statePZ, &coreDataNoSweep.S[KC_STATE_PZ])
+  LOG_ADD(LOG_FLOAT, stateD0, &coreDataNoSweep.S[KC_STATE_D0])
+  LOG_ADD(LOG_FLOAT, stateD1, &coreDataNoSweep.S[KC_STATE_D1])
+  LOG_ADD(LOG_FLOAT, stateD2, &coreDataNoSweep.S[KC_STATE_D2])
+  LOG_ADD(LOG_FLOAT, varX, &coreDataNoSweep.P[KC_STATE_X][KC_STATE_X])
+  LOG_ADD(LOG_FLOAT, varY, &coreDataNoSweep.P[KC_STATE_Y][KC_STATE_Y])
+  LOG_ADD(LOG_FLOAT, varZ, &coreDataNoSweep.P[KC_STATE_Z][KC_STATE_Z])
+  LOG_ADD(LOG_FLOAT, varPX, &coreDataNoSweep.P[KC_STATE_PX][KC_STATE_PX])
+  LOG_ADD(LOG_FLOAT, varPY, &coreDataNoSweep.P[KC_STATE_PY][KC_STATE_PY])
+  LOG_ADD(LOG_FLOAT, varPZ, &coreDataNoSweep.P[KC_STATE_PZ][KC_STATE_PZ])
+  LOG_ADD(LOG_FLOAT, varD0, &coreDataNoSweep.P[KC_STATE_D0][KC_STATE_D0])
+  LOG_ADD(LOG_FLOAT, varD1, &coreDataNoSweep.P[KC_STATE_D1][KC_STATE_D1])
+  LOG_ADD(LOG_FLOAT, varD2, &coreDataNoSweep.P[KC_STATE_D2][KC_STATE_D2])
+  LOG_ADD(LOG_FLOAT, q0, &coreDataNoSweep.q[0])
+  LOG_ADD(LOG_FLOAT, q1, &coreDataNoSweep.q[1])
+  LOG_ADD(LOG_FLOAT, q2, &coreDataNoSweep.q[2])
+  LOG_ADD(LOG_FLOAT, q3, &coreDataNoSweep.q[3])
+
+  STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
+  STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
+  STATS_CNT_RATE_LOG_ADD(rtBaro, &baroUpdateCounter)
+  STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
+  STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
+  STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
+LOG_GROUP_STOP(kalmanNoSweep)
+
+// PARAM_GROUP_START(kalman)
+//   PARAM_ADD(PARAM_UINT8, resetEstimation, &coreData.resetEstimation)
+//   PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
+// PARAM_GROUP_STOP(kalman)
+
+PARAM_GROUP_START(kalmanNoFlow)
+  PARAM_ADD(PARAM_UINT8, resetEstimation, &coreDataNoFlow.resetEstimation)
   PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
-PARAM_GROUP_STOP(kalman)
+PARAM_GROUP_STOP(kalmanNoFlow)
+
+PARAM_GROUP_START(kalmanNoSweep)
+  PARAM_ADD(PARAM_UINT8, resetEstimation, &coreDataNoSweep.resetEstimation)
+  PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
+PARAM_GROUP_STOP(kalmanNoSwee)

@@ -213,12 +213,12 @@ static void estimateYaw(pulseProcessorResult_t* angles, int baseStation) {
 
   // Get data from the current estimated state
   point_t cfPosP;
-  estimatorKalmanGetEstimatedPos(&cfPosP);
+  estimatorKalmanGetEstimatedPosNoFlow(&cfPosP);
   vec3d cfPos = {cfPosP.x, cfPosP.y, cfPosP.z};
 
   // Rotation matrix
   float R[3][3];
-  estimatorKalmanGetEstimatedRot((float*)R);
+  estimatorKalmanGetEstimatedRotNoFlow((float*)R);
   arm_matrix_instance_f32 RR = {3, 3, (float*)R};
 
   // Normal to the deck: (0, 0, 1), rotated using the rotation matrix

@@ -6,7 +6,8 @@
 #include "estimator_complementary.h"
 #include "estimator_kalman.h"
 
-#define DEFAULT_ESTIMATOR complementaryEstimator
+// #define DEFAULT_ESTIMATOR complementaryEstimator
+#define DEFAULT_ESTIMATOR kalmanEstimator
 static StateEstimatorType currentEstimator = anyEstimator;
 
 static void initEstimator(const StateEstimatorType estimator);
@@ -16,7 +17,8 @@ typedef struct {
   void (*init)(void);
   void (*deinit)(void);
   bool (*test)(void);
-  void (*update)(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
+  // void (*update)(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
+  void (*update)(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick);
   const char* name;
   bool (*estimatorEnqueueTDOA)(const tdoaMeasurement_t *uwb);
   bool (*estimatorEnqueuePosition)(const positionMeasurement_t *pos);
@@ -32,6 +34,7 @@ typedef struct {
 #define NOT_IMPLEMENTED ((void*)0)
 
 static EstimatorFcns estimatorFunctions[] = {
+    // Any estimator
     {
         .init = NOT_IMPLEMENTED,
         .deinit = NOT_IMPLEMENTED,
@@ -47,23 +50,25 @@ static EstimatorFcns estimatorFunctions[] = {
         .estimatorEnqueueFlow = NOT_IMPLEMENTED,
         .estimatorEnqueueYawError = NOT_IMPLEMENTED,
         .estimatorEnqueueSweepAngles = NOT_IMPLEMENTED,
-    }, // Any estimator
-    {
-        .init = estimatorComplementaryInit,
-        .deinit = NOT_IMPLEMENTED,
-        .test = estimatorComplementaryTest,
-        .update = estimatorComplementary,
-        .name = "Complementary",
-        .estimatorEnqueueTDOA = NOT_IMPLEMENTED,
-        .estimatorEnqueuePosition = NOT_IMPLEMENTED,
-        .estimatorEnqueuePose = NOT_IMPLEMENTED,
-        .estimatorEnqueueDistance = NOT_IMPLEMENTED,
-        .estimatorEnqueueTOF = estimatorComplementaryEnqueueTOF,
-        .estimatorEnqueueAbsoluteHeight = NOT_IMPLEMENTED,
-        .estimatorEnqueueFlow = NOT_IMPLEMENTED,
-        .estimatorEnqueueYawError = NOT_IMPLEMENTED,
-        .estimatorEnqueueSweepAngles = NOT_IMPLEMENTED,
     },
+    // // Complementary estimator
+    // {
+    //     .init = estimatorComplementaryInit,
+    //     .deinit = NOT_IMPLEMENTED,
+    //     .test = estimatorComplementaryTest,
+    //     .update = estimatorComplementary,
+    //     .name = "Complementary",
+    //     .estimatorEnqueueTDOA = NOT_IMPLEMENTED,
+    //     .estimatorEnqueuePosition = NOT_IMPLEMENTED,
+    //     .estimatorEnqueuePose = NOT_IMPLEMENTED,
+    //     .estimatorEnqueueDistance = NOT_IMPLEMENTED,
+    //     .estimatorEnqueueTOF = estimatorComplementaryEnqueueTOF,
+    //     .estimatorEnqueueAbsoluteHeight = NOT_IMPLEMENTED,
+    //     .estimatorEnqueueFlow = NOT_IMPLEMENTED,
+    //     .estimatorEnqueueYawError = NOT_IMPLEMENTED,
+    //     .estimatorEnqueueSweepAngles = NOT_IMPLEMENTED,
+    // }, 
+    // Kalman estimator
     {
         .init = estimatorKalmanInit,
         .deinit = NOT_IMPLEMENTED,
@@ -79,7 +84,7 @@ static EstimatorFcns estimatorFunctions[] = {
         .estimatorEnqueueFlow = estimatorKalmanEnqueueFlow,
         .estimatorEnqueueYawError = estimatorKalmanEnqueueYawError,
         .estimatorEnqueueSweepAngles = estimatorKalmanEnqueueSweepAngles,
-    },
+    }, 
 };
 
 void stateEstimatorInit(StateEstimatorType estimator) {
@@ -131,8 +136,12 @@ bool stateEstimatorTest(void) {
   return estimatorFunctions[currentEstimator].test();
 }
 
-void stateEstimator(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick) {
-  estimatorFunctions[currentEstimator].update(state, sensors, control, tick);
+// void stateEstimator(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick) {
+//   estimatorFunctions[currentEstimator].update(state, sensors, control, tick);
+// }
+
+void stateEstimator(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick) {
+  estimatorFunctions[currentEstimator].update(stateNoFlow, stateNoSweep, sensors, control, tick);
 }
 
 const char* stateEstimatorGetName() {

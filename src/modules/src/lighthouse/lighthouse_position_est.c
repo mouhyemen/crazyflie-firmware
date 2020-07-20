@@ -35,9 +35,23 @@
 
 #include "lighthouse_position_est.h"
 
+/* georgia_tech_lighthouse
 baseStationGeometry_t lighthouseBaseStationsGeometry[PULSE_PROCESSOR_N_BASE_STATIONS]  = {
 {.origin = {1.391546, 0.864280, 2.037651, }, .mat = {{-0.887545, 0.210185, -0.409984, }, {-0.163845, -0.975695, -0.145511, }, {-0.430603, -0.061973, 0.900411, }, }},
 {.origin = {-1.850453, 0.130212, 1.891929, }, .mat = {{0.955058, 0.021806, 0.295616, }, {0.000000, 0.997290, -0.073566, }, {-0.296420, 0.070260, 0.952470, }, }},
+};
+*/
+
+// nokia_lighthouse - center of the room facing the TV
+// baseStationGeometry_t lighthouseBaseStationsGeometry[PULSE_PROCESSOR_N_BASE_STATIONS]  = {
+// {.origin = {1.433088, 0.947559, 2.035478, }, .mat = {{-0.814748, 0.500175, -0.293276, }, {-0.486249, -0.864937, -0.124284, }, {-0.315829, 0.041345, 0.947915, }, }},
+// {.origin = {-1.526975, -0.947953, 1.957042, }, .mat = {{0.809530, -0.457444, 0.367976, }, {0.409386, 0.889111, 0.204655, }, {-0.420790, -0.015030, 0.907034, }, }},
+// };
+
+// nokia_lighthouse - at the mouth of TV and room entrance facing the study desk
+baseStationGeometry_t lighthouseBaseStationsGeometry[PULSE_PROCESSOR_N_BASE_STATIONS]  = {
+{.origin = {1.973754, -0.794963, 2.044770, }, .mat = {{-0.667344, -0.720607, -0.188092, }, {0.674542, -0.691886, 0.257463, }, {-0.315668, 0.044940, 0.947805, }, }},
+{.origin = {0.057898, 2.042327, 2.099715, }, .mat = {{0.214827, 0.960382, 0.177528, }, {-0.874930, 0.270018, -0.401979, }, {-0.433989, -0.068968, 0.898274, }, }},
 };
 
 #define ONE_SECOND 1000

@@ -65,6 +65,11 @@ uint32_t inToOutLatency;
 static setpoint_t setpoint;
 static sensorData_t sensorData;
 static state_t state;
+static state_t stateLag; // delayed state estimate, earliest state in the stateBuffer
+#define NUM_OF_STATES_IN_BUFFER 1 // number of states stored relates to latency in milliseconds
+#define BUFFER_TICK_INTERVAL 1 // tick interval of states in buffer
+#define DELAYED_STATE (NUM_OF_STATES_IN_BUFFER - 1) // latency = # states in buffer * buffer_tick_interval
+static state_t stateBuffer[NUM_OF_STATES_IN_BUFFER]; // buffer of state estimates from t-N up to t
 static control_t control;
 
 static StateEstimatorType estimatorType;
@@ -246,6 +251,9 @@ static void stabilizerTask(void* param)
 
   DEBUG_PRINT("Ready to fly.\n");
 
+  unsigned int state_counter_index = 0;
+  // bool use_laggy_state = false;
+
   while(1) {
     // The sensor should unlock at 1kHz
     sensorsWaitDataReady();
@@ -271,8 +279,28 @@ static void stabilizerTask(void* param)
         controllerType = getControllerType();
       }
 
+
       stateEstimator(&state, &sensorData, &control, tick);
       compressState();
+
+
+      // Uses a delayed state estimate instead of real time state estimate
+      if (tick % BUFFER_TICK_INTERVAL == 0) {
+        memcpy( &stateBuffer[state_counter_index % NUM_OF_STATES_IN_BUFFER], 
+                &state, 
+                sizeof(state_t));
+      }
+      if (state_counter_index > DELAYED_STATE) {
+        memcpy( &stateLag, 
+                &stateBuffer[(state_counter_index - DELAYED_STATE) % NUM_OF_STATES_IN_BUFFER], 
+                sizeof(state_t)); // load laggy state from the buffer
+        memcpy(&state, &stateLag, sizeof(state_t));   // use laggy state instead of real-time state
+      }
+      if (tick % BUFFER_TICK_INTERVAL == 0) {
+        state_counter_index++;
+      }
+      
+
 
       commanderGetSetpoint(&setpoint, &state);
       compressSetpoint();
@@ -295,6 +323,7 @@ static void stabilizerTask(void* param)
           && RATE_DO_EXECUTE(usddeckFrequency(), tick)) {
         usddeckTriggerLogging();
       }
+      
     }
     calcSensorToOutputLatency(&sensorData);
     tick++;

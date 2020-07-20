@@ -454,6 +454,10 @@ void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, 
   xSemaphoreGive(runTaskSemaphore);
 }
 
+
+
+
+
 static bool predictStateForward(uint32_t osTick, float dt) {
   if (gyroAccumulatorCount == 0
       || accAccumulatorCount == 0

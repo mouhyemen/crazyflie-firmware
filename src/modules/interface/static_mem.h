@@ -98,7 +98,7 @@
  *
  * STATIC_MEM_TASK_ALLOC() and STATIC_MEM_TASK_CREATE() are used together to
  * allocate buffers and create a task. STATIC_MEM_TASK_ALLOC() defines the
- * required memory and variables while STATIC_MEM_TASK_CREATE() creats
+ * required memory and variables while STATIC_MEM_TASK_CREATE() creates
  * the task. The NAME is used as a base name for the necessary variables and
  * does not have to be the same as FUNCTION or TASK_NAME, but that works as well.
  *

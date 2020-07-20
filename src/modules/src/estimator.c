@@ -18,7 +18,7 @@ typedef struct {
   void (*deinit)(void);
   bool (*test)(void);
   // void (*update)(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
-  void (*update)(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick);
+  void (*update)(state_t *stateSweep, state_t *stateFlow, sensorData_t *sensors, control_t *control, const uint32_t tick);
   const char* name;
   bool (*estimatorEnqueueTDOA)(const tdoaMeasurement_t *uwb);
   bool (*estimatorEnqueuePosition)(const positionMeasurement_t *pos);
@@ -140,8 +140,8 @@ bool stateEstimatorTest(void) {
 //   estimatorFunctions[currentEstimator].update(state, sensors, control, tick);
 // }
 
-void stateEstimator(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick) {
-  estimatorFunctions[currentEstimator].update(stateNoFlow, stateNoSweep, sensors, control, tick);
+void stateEstimator(state_t *stateSweep, state_t *stateFlow, sensorData_t *sensors, control_t *control, const uint32_t tick) {
+  estimatorFunctions[currentEstimator].update(stateSweep, stateFlow, sensors, control, tick);
 }
 
 const char* stateEstimatorGetName() {

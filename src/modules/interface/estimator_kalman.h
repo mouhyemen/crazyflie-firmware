@@ -60,7 +60,7 @@
 void estimatorKalmanInit(void);
 bool estimatorKalmanTest(void);
 // void estimatorKalman(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
-void estimatorKalman(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick);
+void estimatorKalman(state_t *stateSweep, state_t *stateFlow, sensorData_t *sensors, control_t *control, const uint32_t tick);
 
 
 void estimatorKalmanTaskInit();
@@ -80,14 +80,14 @@ bool estimatorKalmanEnqueueYawError(const yawErrorMeasurement_t* error);
 bool estimatorKalmanEnqueueSweepAngles(const sweepAngleMeasurement_t *angles);
 
 // void estimatorKalmanGetEstimatedPos(point_t* pos);
-void estimatorKalmanGetEstimatedPosNoFlow(point_t* pos);
-void estimatorKalmanGetEstimatedPosNoSweep(point_t* pos);
+void estimatorKalmanGetEstimatedPosSweep(point_t* pos);
+void estimatorKalmanGetEstimatedPosFlow(point_t* pos);
 
 /**
  * Copies 9 floats representing the current state rotation matrix
  */
 // void estimatorKalmanGetEstimatedRot(float * rotationMatrix);
-void estimatorKalmanGetEstimatedRotNoFlow(float * rotationMatrix);
-void estimatorKalmanGetEstimatedRotNoSweep(float * rotationMatrix);
+void estimatorKalmanGetEstimatedRotSweep(float * rotationMatrix);
+void estimatorKalmanGetEstimatedRotFlow(float * rotationMatrix);
 
 #endif // __ESTIMATOR_KALMAN_H__

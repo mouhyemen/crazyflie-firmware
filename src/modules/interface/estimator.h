@@ -40,7 +40,7 @@ bool stateEstimatorTest(void);
 void stateEstimatorSwitchTo(StateEstimatorType estimator);
 
 // void stateEstimator(state_t *state, sensorData_t *sensors, control_t *control, const uint32_t tick);
-void stateEstimator(state_t *stateNoFlow, state_t *stateNoSweep, sensorData_t *sensors, control_t *control, const uint32_t tick);
+void stateEstimator(state_t *stateSweep, state_t *stateFlow, sensorData_t *sensors, control_t *control, const uint32_t tick);
 
 StateEstimatorType getStateEstimator(void);
 const char* stateEstimatorGetName();

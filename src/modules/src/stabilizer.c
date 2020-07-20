@@ -404,6 +404,7 @@ static void stabilizerTask(void* param)
         state_counter_index++;
       }
       
+      // combine stateNoFlow and stateNoSweep into stateCorrected
 
       commanderGetSetpoint(&setpoint, &stateNoFlow);
       compressSetpoint();
@@ -819,28 +820,28 @@ LOG_ADD(LOG_FLOAT, qw, &stateNoFlow.attitudeQuaternion.w)
 LOG_GROUP_STOP(stateEstimateNoFlow)
 
 
-LOG_GROUP_START(stateEstimateNoSweep)
-LOG_ADD(LOG_FLOAT, x, &stateNoSweep.position.x)
-LOG_ADD(LOG_FLOAT, y, &stateNoSweep.position.y)
-LOG_ADD(LOG_FLOAT, z, &stateNoSweep.position.z)
+// LOG_GROUP_START(stateEstimateNoSweep)
+// LOG_ADD(LOG_FLOAT, x, &stateNoSweep.position.x)
+// LOG_ADD(LOG_FLOAT, y, &stateNoSweep.position.y)
+// LOG_ADD(LOG_FLOAT, z, &stateNoSweep.position.z)
 
-LOG_ADD(LOG_FLOAT, vx, &stateNoSweep.velocity.x)
-LOG_ADD(LOG_FLOAT, vy, &stateNoSweep.velocity.y)
-LOG_ADD(LOG_FLOAT, vz, &stateNoSweep.velocity.z)
+// LOG_ADD(LOG_FLOAT, vx, &stateNoSweep.velocity.x)
+// LOG_ADD(LOG_FLOAT, vy, &stateNoSweep.velocity.y)
+// LOG_ADD(LOG_FLOAT, vz, &stateNoSweep.velocity.z)
 
-LOG_ADD(LOG_FLOAT, ax, &stateNoSweep.acc.x)
-LOG_ADD(LOG_FLOAT, ay, &stateNoSweep.acc.y)
-LOG_ADD(LOG_FLOAT, az, &stateNoSweep.acc.z)
+// LOG_ADD(LOG_FLOAT, ax, &stateNoSweep.acc.x)
+// LOG_ADD(LOG_FLOAT, ay, &stateNoSweep.acc.y)
+// LOG_ADD(LOG_FLOAT, az, &stateNoSweep.acc.z)
 
-LOG_ADD(LOG_FLOAT, roll, &stateNoSweep.attitude.roll)
-LOG_ADD(LOG_FLOAT, pitch, &stateNoSweep.attitude.pitch)
-LOG_ADD(LOG_FLOAT, yaw, &stateNoSweep.attitude.yaw)
+// LOG_ADD(LOG_FLOAT, roll, &stateNoSweep.attitude.roll)
+// LOG_ADD(LOG_FLOAT, pitch, &stateNoSweep.attitude.pitch)
+// LOG_ADD(LOG_FLOAT, yaw, &stateNoSweep.attitude.yaw)
 
-LOG_ADD(LOG_FLOAT, qx, &stateNoSweep.attitudeQuaternion.x)
-LOG_ADD(LOG_FLOAT, qy, &stateNoSweep.attitudeQuaternion.y)
-LOG_ADD(LOG_FLOAT, qz, &stateNoSweep.attitudeQuaternion.z)
-LOG_ADD(LOG_FLOAT, qw, &stateNoSweep.attitudeQuaternion.w)
-LOG_GROUP_STOP(stateEstimateNoSweep)
+// LOG_ADD(LOG_FLOAT, qx, &stateNoSweep.attitudeQuaternion.x)
+// LOG_ADD(LOG_FLOAT, qy, &stateNoSweep.attitudeQuaternion.y)
+// LOG_ADD(LOG_FLOAT, qz, &stateNoSweep.attitudeQuaternion.z)
+// LOG_ADD(LOG_FLOAT, qw, &stateNoSweep.attitudeQuaternion.w)
+// LOG_GROUP_STOP(stateEstimateNoSweep)
 
 
 // LOG_GROUP_START(stateEstimateZ)
@@ -863,44 +864,44 @@ LOG_GROUP_STOP(stateEstimateNoSweep)
 // LOG_ADD(LOG_INT16, rateYaw, &stateCompressed.rateYaw)
 // LOG_GROUP_STOP(stateEstimateZ)
 
-LOG_GROUP_START(stateEstimateZNoFlow)
-LOG_ADD(LOG_INT16, x, &stateCompressedNoFlow.x)                 // position - mm
-LOG_ADD(LOG_INT16, y, &stateCompressedNoFlow.y)
-LOG_ADD(LOG_INT16, z, &stateCompressedNoFlow.z)
+// LOG_GROUP_START(stateEstimateZNoFlow)
+// LOG_ADD(LOG_INT16, x, &stateCompressedNoFlow.x)                 // position - mm
+// LOG_ADD(LOG_INT16, y, &stateCompressedNoFlow.y)
+// LOG_ADD(LOG_INT16, z, &stateCompressedNoFlow.z)
 
-LOG_ADD(LOG_INT16, vx, &stateCompressedNoFlow.vx)               // velocity - mm / sec
-LOG_ADD(LOG_INT16, vy, &stateCompressedNoFlow.vy)
-LOG_ADD(LOG_INT16, vz, &stateCompressedNoFlow.vz)
+// LOG_ADD(LOG_INT16, vx, &stateCompressedNoFlow.vx)               // velocity - mm / sec
+// LOG_ADD(LOG_INT16, vy, &stateCompressedNoFlow.vy)
+// LOG_ADD(LOG_INT16, vz, &stateCompressedNoFlow.vz)
 
-LOG_ADD(LOG_INT16, ax, &stateCompressedNoFlow.ax)               // acceleration - mm / sec^2
-LOG_ADD(LOG_INT16, ay, &stateCompressedNoFlow.ay)
-LOG_ADD(LOG_INT16, az, &stateCompressedNoFlow.az)
+// LOG_ADD(LOG_INT16, ax, &stateCompressedNoFlow.ax)               // acceleration - mm / sec^2
+// LOG_ADD(LOG_INT16, ay, &stateCompressedNoFlow.ay)
+// LOG_ADD(LOG_INT16, az, &stateCompressedNoFlow.az)
 
-LOG_ADD(LOG_UINT32, quat, &stateCompressedNoFlow.quat)           // compressed quaternion, see quatcompress.h
+// LOG_ADD(LOG_UINT32, quat, &stateCompressedNoFlow.quat)           // compressed quaternion, see quatcompress.h
 
-LOG_ADD(LOG_INT16, rateRoll, &stateCompressedNoFlow.rateRoll)   // angular velocity - milliradians / sec
-LOG_ADD(LOG_INT16, ratePitch, &stateCompressedNoFlow.ratePitch)
-LOG_ADD(LOG_INT16, rateYaw, &stateCompressedNoFlow.rateYaw)
-LOG_GROUP_STOP(stateEstimateZ)
+// LOG_ADD(LOG_INT16, rateRoll, &stateCompressedNoFlow.rateRoll)   // angular velocity - milliradians / sec
+// LOG_ADD(LOG_INT16, ratePitch, &stateCompressedNoFlow.ratePitch)
+// LOG_ADD(LOG_INT16, rateYaw, &stateCompressedNoFlow.rateYaw)
+// LOG_GROUP_STOP(stateEstimateZ)
 
 
-LOG_GROUP_START(stateEstimateZNoSweep)
-LOG_ADD(LOG_INT16, x, &stateCompressedNoSweep.x)                 // position - mm
-LOG_ADD(LOG_INT16, y, &stateCompressedNoSweep.y)
-LOG_ADD(LOG_INT16, z, &stateCompressedNoSweep.z)
+// LOG_GROUP_START(stateEstimateZNoSweep)
+// LOG_ADD(LOG_INT16, x, &stateCompressedNoSweep.x)                 // position - mm
+// LOG_ADD(LOG_INT16, y, &stateCompressedNoSweep.y)
+// LOG_ADD(LOG_INT16, z, &stateCompressedNoSweep.z)
 
-LOG_ADD(LOG_INT16, vx, &stateCompressedNoSweep.vx)               // velocity - mm / sec
-LOG_ADD(LOG_INT16, vy, &stateCompressedNoSweep.vy)
-LOG_ADD(LOG_INT16, vz, &stateCompressedNoSweep.vz)
+// LOG_ADD(LOG_INT16, vx, &stateCompressedNoSweep.vx)               // velocity - mm / sec
+// LOG_ADD(LOG_INT16, vy, &stateCompressedNoSweep.vy)
+// LOG_ADD(LOG_INT16, vz, &stateCompressedNoSweep.vz)
 
-LOG_ADD(LOG_INT16, ax, &stateCompressedNoSweep.ax)               // acceleration - mm / sec^2
-LOG_ADD(LOG_INT16, ay, &stateCompressedNoSweep.ay)
-LOG_ADD(LOG_INT16, az, &stateCompressedNoSweep.az)
+// LOG_ADD(LOG_INT16, ax, &stateCompressedNoSweep.ax)               // acceleration - mm / sec^2
+// LOG_ADD(LOG_INT16, ay, &stateCompressedNoSweep.ay)
+// LOG_ADD(LOG_INT16, az, &stateCompressedNoSweep.az)
 
-LOG_ADD(LOG_UINT32, quat, &stateCompressedNoSweep.quat)           // compressed quaternion, see quatcompress.h
+// LOG_ADD(LOG_UINT32, quat, &stateCompressedNoSweep.quat)           // compressed quaternion, see quatcompress.h
 
-LOG_ADD(LOG_INT16, rateRoll, &stateCompressedNoSweep.rateRoll)   // angular velocity - milliradians / sec
-LOG_ADD(LOG_INT16, ratePitch, &stateCompressedNoSweep.ratePitch)
-LOG_ADD(LOG_INT16, rateYaw, &stateCompressedNoSweep.rateYaw)
-LOG_GROUP_STOP(stateEstimateZ)
+// LOG_ADD(LOG_INT16, rateRoll, &stateCompressedNoSweep.rateRoll)   // angular velocity - milliradians / sec
+// LOG_ADD(LOG_INT16, ratePitch, &stateCompressedNoSweep.ratePitch)
+// LOG_ADD(LOG_INT16, rateYaw, &stateCompressedNoSweep.rateYaw)
+// LOG_GROUP_STOP(stateEstimateZ)
 

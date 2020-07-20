@@ -413,13 +413,6 @@ static void kalmanTask(void* parameters) {
       memcpy(&gyro, &gyroSnapshot, sizeof(gyro));
       xSemaphoreGive(dataMutex);
       doneUpdateNoFlow = doneUpdateNoFlow || updateQueuedMeasurmentsNoFlow(&gyro, osTick);
-    }
-
-    {
-      Axis3f gyro;
-      xSemaphoreTake(dataMutex, portMAX_DELAY);
-      memcpy(&gyro, &gyroSnapshot, sizeof(gyro));
-      xSemaphoreGive(dataMutex);
       doneUpdateNoSweep = doneUpdateNoSweep || updateQueuedMeasurmentsNoSweep(&gyro, osTick);
     }
 
@@ -470,9 +463,9 @@ static void kalmanTask(void* parameters) {
 
     xSemaphoreTake(dataMutex, portMAX_DELAY);
     kalmanCoreExternalizeState(&coreDataNoFlow, &taskEstimatorStateNoFlow, &accSnapshot, osTick);
-    xSemaphoreGive(dataMutex);
+    // xSemaphoreGive(dataMutex);
 
-    xSemaphoreTake(dataMutex, portMAX_DELAY);
+    // xSemaphoreTake(dataMutex, portMAX_DELAY);
     kalmanCoreExternalizeState(&coreDataNoSweep, &taskEstimatorStateNoSweep, &accSnapshot, osTick);
     xSemaphoreGive(dataMutex);
 
@@ -956,21 +949,21 @@ void estimatorKalmanGetEstimatedRotNoSweep(float * rotationMatrix) {
 //   LOG_ADD(LOG_FLOAT, vy, &coreData.S[KC_STATE_PY])
 // LOG_GROUP_STOP(kalman_states)
 
-// Temporary development groups
-LOG_GROUP_START(kalman_statesNoFlow)
-  LOG_ADD(LOG_FLOAT, ox, &coreDataNoFlow.S[KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, oy, &coreDataNoFlow.S[KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, vx, &coreDataNoFlow.S[KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, vy, &coreDataNoFlow.S[KC_STATE_PY])
-LOG_GROUP_STOP(kalman_statesNoFlow)
+// // Temporary development groups
+// LOG_GROUP_START(kalman_statesNoFlow)
+//   LOG_ADD(LOG_FLOAT, ox, &coreDataNoFlow.S[KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, oy, &coreDataNoFlow.S[KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, vx, &coreDataNoFlow.S[KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, vy, &coreDataNoFlow.S[KC_STATE_PY])
+// LOG_GROUP_STOP(kalman_statesNoFlow)
 
-// Temporary development groups
-LOG_GROUP_START(kalman_statesNoSweep)
-  LOG_ADD(LOG_FLOAT, ox, &coreDataNoSweep.S[KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, oy, &coreDataNoSweep.S[KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, vx, &coreDataNoSweep.S[KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, vy, &coreDataNoSweep.S[KC_STATE_PY])
-LOG_GROUP_STOP(kalman_statesNoSweep)
+// // Temporary development groups
+// LOG_GROUP_START(kalman_statesNoSweep)
+//   LOG_ADD(LOG_FLOAT, ox, &coreDataNoSweep.S[KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, oy, &coreDataNoSweep.S[KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, vx, &coreDataNoSweep.S[KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, vy, &coreDataNoSweep.S[KC_STATE_PY])
+// LOG_GROUP_STOP(kalman_statesNoSweep)
 
 
 // // Stock log groups
@@ -1007,85 +1000,85 @@ LOG_GROUP_STOP(kalman_statesNoSweep)
 //   STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
 // LOG_GROUP_STOP(kalman)
 
-// Stock log groups
-LOG_GROUP_START(kalmanNoFlow)
-  LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
-  LOG_ADD(LOG_FLOAT, stateX, &coreDataNoFlow.S[KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, stateY, &coreDataNoFlow.S[KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, stateZ, &coreDataNoFlow.S[KC_STATE_Z])
-  LOG_ADD(LOG_FLOAT, statePX, &coreDataNoFlow.S[KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, statePY, &coreDataNoFlow.S[KC_STATE_PY])
-  LOG_ADD(LOG_FLOAT, statePZ, &coreDataNoFlow.S[KC_STATE_PZ])
-  LOG_ADD(LOG_FLOAT, stateD0, &coreDataNoFlow.S[KC_STATE_D0])
-  LOG_ADD(LOG_FLOAT, stateD1, &coreDataNoFlow.S[KC_STATE_D1])
-  LOG_ADD(LOG_FLOAT, stateD2, &coreDataNoFlow.S[KC_STATE_D2])
-  LOG_ADD(LOG_FLOAT, varX, &coreDataNoFlow.P[KC_STATE_X][KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, varY, &coreDataNoFlow.P[KC_STATE_Y][KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, varZ, &coreDataNoFlow.P[KC_STATE_Z][KC_STATE_Z])
-  LOG_ADD(LOG_FLOAT, varPX, &coreDataNoFlow.P[KC_STATE_PX][KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, varPY, &coreDataNoFlow.P[KC_STATE_PY][KC_STATE_PY])
-  LOG_ADD(LOG_FLOAT, varPZ, &coreDataNoFlow.P[KC_STATE_PZ][KC_STATE_PZ])
-  LOG_ADD(LOG_FLOAT, varD0, &coreDataNoFlow.P[KC_STATE_D0][KC_STATE_D0])
-  LOG_ADD(LOG_FLOAT, varD1, &coreDataNoFlow.P[KC_STATE_D1][KC_STATE_D1])
-  LOG_ADD(LOG_FLOAT, varD2, &coreDataNoFlow.P[KC_STATE_D2][KC_STATE_D2])
-  LOG_ADD(LOG_FLOAT, q0, &coreDataNoFlow.q[0])
-  LOG_ADD(LOG_FLOAT, q1, &coreDataNoFlow.q[1])
-  LOG_ADD(LOG_FLOAT, q2, &coreDataNoFlow.q[2])
-  LOG_ADD(LOG_FLOAT, q3, &coreDataNoFlow.q[3])
+// // Stock log groups
+// LOG_GROUP_START(kalmanNoFlow)
+//   LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
+//   LOG_ADD(LOG_FLOAT, stateX, &coreDataNoFlow.S[KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, stateY, &coreDataNoFlow.S[KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, stateZ, &coreDataNoFlow.S[KC_STATE_Z])
+//   LOG_ADD(LOG_FLOAT, statePX, &coreDataNoFlow.S[KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, statePY, &coreDataNoFlow.S[KC_STATE_PY])
+//   LOG_ADD(LOG_FLOAT, statePZ, &coreDataNoFlow.S[KC_STATE_PZ])
+//   LOG_ADD(LOG_FLOAT, stateD0, &coreDataNoFlow.S[KC_STATE_D0])
+//   LOG_ADD(LOG_FLOAT, stateD1, &coreDataNoFlow.S[KC_STATE_D1])
+//   LOG_ADD(LOG_FLOAT, stateD2, &coreDataNoFlow.S[KC_STATE_D2])
+//   LOG_ADD(LOG_FLOAT, varX, &coreDataNoFlow.P[KC_STATE_X][KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, varY, &coreDataNoFlow.P[KC_STATE_Y][KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, varZ, &coreDataNoFlow.P[KC_STATE_Z][KC_STATE_Z])
+//   LOG_ADD(LOG_FLOAT, varPX, &coreDataNoFlow.P[KC_STATE_PX][KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, varPY, &coreDataNoFlow.P[KC_STATE_PY][KC_STATE_PY])
+//   LOG_ADD(LOG_FLOAT, varPZ, &coreDataNoFlow.P[KC_STATE_PZ][KC_STATE_PZ])
+//   LOG_ADD(LOG_FLOAT, varD0, &coreDataNoFlow.P[KC_STATE_D0][KC_STATE_D0])
+//   LOG_ADD(LOG_FLOAT, varD1, &coreDataNoFlow.P[KC_STATE_D1][KC_STATE_D1])
+//   LOG_ADD(LOG_FLOAT, varD2, &coreDataNoFlow.P[KC_STATE_D2][KC_STATE_D2])
+//   LOG_ADD(LOG_FLOAT, q0, &coreDataNoFlow.q[0])
+//   LOG_ADD(LOG_FLOAT, q1, &coreDataNoFlow.q[1])
+//   LOG_ADD(LOG_FLOAT, q2, &coreDataNoFlow.q[2])
+//   LOG_ADD(LOG_FLOAT, q3, &coreDataNoFlow.q[3])
 
-  STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
-  STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
-  STATS_CNT_RATE_LOG_ADD(rtBaro, &baroUpdateCounter)
-  STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
-  STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
-  STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
-LOG_GROUP_STOP(kalmanNoFlow)
+//   STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtBaro, &baroUpdateCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
+// LOG_GROUP_STOP(kalmanNoFlow)
 
-// Stock log groups
-LOG_GROUP_START(kalmanNoSweep)
-  LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
-  LOG_ADD(LOG_FLOAT, stateX, &coreDataNoSweep.S[KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, stateY, &coreDataNoSweep.S[KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, stateZ, &coreDataNoSweep.S[KC_STATE_Z])
-  LOG_ADD(LOG_FLOAT, statePX, &coreDataNoSweep.S[KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, statePY, &coreDataNoSweep.S[KC_STATE_PY])
-  LOG_ADD(LOG_FLOAT, statePZ, &coreDataNoSweep.S[KC_STATE_PZ])
-  LOG_ADD(LOG_FLOAT, stateD0, &coreDataNoSweep.S[KC_STATE_D0])
-  LOG_ADD(LOG_FLOAT, stateD1, &coreDataNoSweep.S[KC_STATE_D1])
-  LOG_ADD(LOG_FLOAT, stateD2, &coreDataNoSweep.S[KC_STATE_D2])
-  LOG_ADD(LOG_FLOAT, varX, &coreDataNoSweep.P[KC_STATE_X][KC_STATE_X])
-  LOG_ADD(LOG_FLOAT, varY, &coreDataNoSweep.P[KC_STATE_Y][KC_STATE_Y])
-  LOG_ADD(LOG_FLOAT, varZ, &coreDataNoSweep.P[KC_STATE_Z][KC_STATE_Z])
-  LOG_ADD(LOG_FLOAT, varPX, &coreDataNoSweep.P[KC_STATE_PX][KC_STATE_PX])
-  LOG_ADD(LOG_FLOAT, varPY, &coreDataNoSweep.P[KC_STATE_PY][KC_STATE_PY])
-  LOG_ADD(LOG_FLOAT, varPZ, &coreDataNoSweep.P[KC_STATE_PZ][KC_STATE_PZ])
-  LOG_ADD(LOG_FLOAT, varD0, &coreDataNoSweep.P[KC_STATE_D0][KC_STATE_D0])
-  LOG_ADD(LOG_FLOAT, varD1, &coreDataNoSweep.P[KC_STATE_D1][KC_STATE_D1])
-  LOG_ADD(LOG_FLOAT, varD2, &coreDataNoSweep.P[KC_STATE_D2][KC_STATE_D2])
-  LOG_ADD(LOG_FLOAT, q0, &coreDataNoSweep.q[0])
-  LOG_ADD(LOG_FLOAT, q1, &coreDataNoSweep.q[1])
-  LOG_ADD(LOG_FLOAT, q2, &coreDataNoSweep.q[2])
-  LOG_ADD(LOG_FLOAT, q3, &coreDataNoSweep.q[3])
+// // Stock log groups
+// LOG_GROUP_START(kalmanNoSweep)
+//   LOG_ADD(LOG_UINT8, inFlight, &quadIsFlying)
+//   LOG_ADD(LOG_FLOAT, stateX, &coreDataNoSweep.S[KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, stateY, &coreDataNoSweep.S[KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, stateZ, &coreDataNoSweep.S[KC_STATE_Z])
+//   LOG_ADD(LOG_FLOAT, statePX, &coreDataNoSweep.S[KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, statePY, &coreDataNoSweep.S[KC_STATE_PY])
+//   LOG_ADD(LOG_FLOAT, statePZ, &coreDataNoSweep.S[KC_STATE_PZ])
+//   LOG_ADD(LOG_FLOAT, stateD0, &coreDataNoSweep.S[KC_STATE_D0])
+//   LOG_ADD(LOG_FLOAT, stateD1, &coreDataNoSweep.S[KC_STATE_D1])
+//   LOG_ADD(LOG_FLOAT, stateD2, &coreDataNoSweep.S[KC_STATE_D2])
+//   LOG_ADD(LOG_FLOAT, varX, &coreDataNoSweep.P[KC_STATE_X][KC_STATE_X])
+//   LOG_ADD(LOG_FLOAT, varY, &coreDataNoSweep.P[KC_STATE_Y][KC_STATE_Y])
+//   LOG_ADD(LOG_FLOAT, varZ, &coreDataNoSweep.P[KC_STATE_Z][KC_STATE_Z])
+//   LOG_ADD(LOG_FLOAT, varPX, &coreDataNoSweep.P[KC_STATE_PX][KC_STATE_PX])
+//   LOG_ADD(LOG_FLOAT, varPY, &coreDataNoSweep.P[KC_STATE_PY][KC_STATE_PY])
+//   LOG_ADD(LOG_FLOAT, varPZ, &coreDataNoSweep.P[KC_STATE_PZ][KC_STATE_PZ])
+//   LOG_ADD(LOG_FLOAT, varD0, &coreDataNoSweep.P[KC_STATE_D0][KC_STATE_D0])
+//   LOG_ADD(LOG_FLOAT, varD1, &coreDataNoSweep.P[KC_STATE_D1][KC_STATE_D1])
+//   LOG_ADD(LOG_FLOAT, varD2, &coreDataNoSweep.P[KC_STATE_D2][KC_STATE_D2])
+//   LOG_ADD(LOG_FLOAT, q0, &coreDataNoSweep.q[0])
+//   LOG_ADD(LOG_FLOAT, q1, &coreDataNoSweep.q[1])
+//   LOG_ADD(LOG_FLOAT, q2, &coreDataNoSweep.q[2])
+//   LOG_ADD(LOG_FLOAT, q3, &coreDataNoSweep.q[3])
 
-  STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
-  STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
-  STATS_CNT_RATE_LOG_ADD(rtBaro, &baroUpdateCounter)
-  STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
-  STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
-  STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
-LOG_GROUP_STOP(kalmanNoSweep)
+//   STATS_CNT_RATE_LOG_ADD(rtUpdate, &updateCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtPred, &predictionCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtBaro, &baroUpdateCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtFinal, &finalizeCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtApnd, &measurementAppendedCounter)
+//   STATS_CNT_RATE_LOG_ADD(rtRej, &measurementNotAppendedCounter)
+// LOG_GROUP_STOP(kalmanNoSweep)
 
 // PARAM_GROUP_START(kalman)
 //   PARAM_ADD(PARAM_UINT8, resetEstimation, &coreData.resetEstimation)
 //   PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
 // PARAM_GROUP_STOP(kalman)
 
-PARAM_GROUP_START(kalmanNoFlow)
-  PARAM_ADD(PARAM_UINT8, resetEstimation, &coreDataNoFlow.resetEstimation)
-  PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
-PARAM_GROUP_STOP(kalmanNoFlow)
+// PARAM_GROUP_START(kalmanNoFlow)
+//   PARAM_ADD(PARAM_UINT8, resetEstimation, &coreDataNoFlow.resetEstimation)
+//   PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
+// PARAM_GROUP_STOP(kalmanNoFlow)
 
-PARAM_GROUP_START(kalmanNoSweep)
-  PARAM_ADD(PARAM_UINT8, resetEstimation, &coreDataNoSweep.resetEstimation)
-  PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
-PARAM_GROUP_STOP(kalmanNoSwee)
+// PARAM_GROUP_START(kalmanNoSweep)
+//   PARAM_ADD(PARAM_UINT8, resetEstimation, &coreDataNoSweep.resetEstimation)
+//   PARAM_ADD(PARAM_UINT8, quadIsFlying, &quadIsFlying)
+// PARAM_GROUP_STOP(kalmanNoSwee)

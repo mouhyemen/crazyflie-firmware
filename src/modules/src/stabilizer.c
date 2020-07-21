@@ -65,8 +65,8 @@ uint32_t inToOutLatency;
 static setpoint_t setpoint;
 static sensorData_t sensorData;
 // static state_t state;
-static state_t stateSweep;
-static state_t stateFlow;
+static state_t stateSweep;  // same as `state` except it does not include flow measurements
+static state_t stateFlow;   // same as `state` except it does not include sweep measurements
 static state_t stateLag; // delayed state estimate, earliest state in the stateBuffer
 #define NUM_OF_STATES_IN_BUFFER 1 // number of states stored relates to latency in milliseconds
 #define BUFFER_TICK_INTERVAL 1 // tick interval of states in buffer

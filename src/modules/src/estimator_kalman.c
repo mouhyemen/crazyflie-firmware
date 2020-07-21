@@ -366,8 +366,8 @@ static void kalmanTask(void* parameters) {
       float dt = T2S(osTick - lastPNUpdate);
       if (dt > 0.0f) {
         // kalmanCoreAddProcessNoise(&coreData, dt);
-        kalmanCoreAddProcessNoise(&coreDataSweep, dt);
         kalmanCoreAddProcessNoise(&coreDataFlow, dt);
+        kalmanCoreAddProcessNoise(&coreDataSweep, dt);
         lastPNUpdate = osTick;
       }
     }
@@ -387,8 +387,8 @@ static void kalmanTask(void* parameters) {
         xSemaphoreGive(dataMutex);
 
         // kalmanCoreUpdateWithBaro(&coreData, baroAslAverage, quadIsFlying);
-        kalmanCoreUpdateWithBaro(&coreDataSweep, baroAslAverage, quadIsFlying);
         kalmanCoreUpdateWithBaro(&coreDataFlow, baroAslAverage, quadIsFlying);
+        kalmanCoreUpdateWithBaro(&coreDataSweep, baroAslAverage, quadIsFlying);
 
         nextBaroUpdate = osTick + S2T(1.0f / BARO_RATE);
         // doneUpdate = true;
@@ -412,8 +412,8 @@ static void kalmanTask(void* parameters) {
       xSemaphoreTake(dataMutex, portMAX_DELAY);
       memcpy(&gyro, &gyroSnapshot, sizeof(gyro));
       xSemaphoreGive(dataMutex);
-      doneUpdateSweep = doneUpdateSweep || updateQueuedMeasurmentsSweep(&gyro, osTick);
       doneUpdateFlow = doneUpdateFlow || updateQueuedMeasurmentsFlow(&gyro, osTick);
+      doneUpdateSweep = doneUpdateSweep || updateQueuedMeasurmentsSweep(&gyro, osTick);
     }
 
     /**
@@ -433,22 +433,22 @@ static void kalmanTask(void* parameters) {
     //   }
     // }
 
-    if (doneUpdateSweep)
-    {
-      kalmanCoreFinalize(&coreDataSweep, osTick);
-      STATS_CNT_RATE_EVENT(&finalizeCounter);
-      if (! kalmanSupervisorIsStateWithinBounds(&coreDataSweep)) {
-        coreDataSweep.resetEstimation = true;
-        DEBUG_PRINT("State out of bounds, resetting\n");
-      }
-    }
-
     if (doneUpdateFlow)
     {
       kalmanCoreFinalize(&coreDataFlow, osTick);
       STATS_CNT_RATE_EVENT(&finalizeCounter);
       if (! kalmanSupervisorIsStateWithinBounds(&coreDataFlow)) {
         coreDataFlow.resetEstimation = true;
+        DEBUG_PRINT("State out of bounds, resetting\n");
+      }
+    }
+
+    if (doneUpdateSweep)
+    {
+      kalmanCoreFinalize(&coreDataSweep, osTick);
+      STATS_CNT_RATE_EVENT(&finalizeCounter);
+      if (! kalmanSupervisorIsStateWithinBounds(&coreDataSweep)) {
+        coreDataSweep.resetEstimation = true;
         DEBUG_PRINT("State out of bounds, resetting\n");
       }
     }
@@ -462,11 +462,11 @@ static void kalmanTask(void* parameters) {
     // xSemaphoreGive(dataMutex);
 
     xSemaphoreTake(dataMutex, portMAX_DELAY);
-    kalmanCoreExternalizeState(&coreDataSweep, &taskEstimatorStateSweep, &accSnapshot, osTick);
+    kalmanCoreExternalizeState(&coreDataFlow, &taskEstimatorStateFlow, &accSnapshot, osTick);
     // xSemaphoreGive(dataMutex);
 
     // xSemaphoreTake(dataMutex, portMAX_DELAY);
-    kalmanCoreExternalizeState(&coreDataFlow, &taskEstimatorStateFlow, &accSnapshot, osTick);
+    kalmanCoreExternalizeState(&coreDataSweep, &taskEstimatorStateSweep, &accSnapshot, osTick);
     xSemaphoreGive(dataMutex);
 
     STATS_CNT_RATE_EVENT(&updateCounter);
@@ -516,8 +516,8 @@ void estimatorKalman(state_t *stateSweep, state_t *stateFlow, sensorData_t *sens
   // // Copy the latest state, calculated by the task
   // memcpy(state, &taskEstimatorState, sizeof(state_t));
 
-  memcpy(stateSweep, &taskEstimatorStateSweep, sizeof(state_t));
   memcpy(stateFlow, &taskEstimatorStateFlow, sizeof(state_t));
+  memcpy(stateSweep, &taskEstimatorStateSweep, sizeof(state_t));
 
   xSemaphoreGive(dataMutex);
 
@@ -573,8 +573,8 @@ static bool predictStateForward(uint32_t osTick, float dt) {
   quadIsFlying = (osTick-lastFlightCmd) < IN_FLIGHT_TIME_THRESHOLD;
 
   // kalmanCorePredict(&coreData, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
-  kalmanCorePredict(&coreDataSweep, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
   kalmanCorePredict(&coreDataFlow, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
+  kalmanCorePredict(&coreDataSweep, thrustAverage, &accAverage, &gyroAverage, dt, quadIsFlying);
 
   return true;
 }

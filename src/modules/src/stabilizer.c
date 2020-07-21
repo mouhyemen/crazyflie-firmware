@@ -406,12 +406,12 @@ static void stabilizerTask(void* param)
       
       // combine stateSweep and stateFlow into stateCorrected
 
-      commanderGetSetpoint(&setpoint, &stateSweep);
+      commanderGetSetpoint(&setpoint, &stateFlow);
       compressSetpoint();
 
-      sitAwUpdateSetpoint(&setpoint, &sensorData, &stateSweep);
+      sitAwUpdateSetpoint(&setpoint, &sensorData, &stateFlow);
 
-      controller(&control, &setpoint, &sensorData, &stateSweep, tick);
+      controller(&control, &setpoint, &sensorData, &stateFlow, tick);
 
       checkEmergencyStopTimeout();
 

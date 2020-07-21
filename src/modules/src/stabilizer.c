@@ -657,6 +657,10 @@ static void testProps(sensorData_t *sensors)
     testState = testDone;
   }
 }
+
+
+
+
 PARAM_GROUP_START(health)
 PARAM_ADD(PARAM_UINT8, startPropTest, &startPropTest)
 PARAM_GROUP_STOP(health)
@@ -796,28 +800,6 @@ LOG_GROUP_STOP(controller)
 // LOG_ADD(LOG_FLOAT, qw, &state.attitudeQuaternion.w)
 // LOG_GROUP_STOP(stateEstimate)
 
-// LOG_GROUP_START(stateEstimateSweep)
-// LOG_ADD(LOG_FLOAT, x, &stateSweep.position.x)
-// LOG_ADD(LOG_FLOAT, y, &stateSweep.position.y)
-// LOG_ADD(LOG_FLOAT, z, &stateSweep.position.z)
-
-// LOG_ADD(LOG_FLOAT, vx, &stateSweep.velocity.x)
-// LOG_ADD(LOG_FLOAT, vy, &stateSweep.velocity.y)
-// LOG_ADD(LOG_FLOAT, vz, &stateSweep.velocity.z)
-
-// LOG_ADD(LOG_FLOAT, ax, &stateSweep.acc.x)
-// LOG_ADD(LOG_FLOAT, ay, &stateSweep.acc.y)
-// LOG_ADD(LOG_FLOAT, az, &stateSweep.acc.z)
-
-// LOG_ADD(LOG_FLOAT, roll, &stateSweep.attitude.roll)
-// LOG_ADD(LOG_FLOAT, pitch, &stateSweep.attitude.pitch)
-// LOG_ADD(LOG_FLOAT, yaw, &stateSweep.attitude.yaw)
-
-// LOG_ADD(LOG_FLOAT, qx, &stateSweep.attitudeQuaternion.x)
-// LOG_ADD(LOG_FLOAT, qy, &stateSweep.attitudeQuaternion.y)
-// LOG_ADD(LOG_FLOAT, qz, &stateSweep.attitudeQuaternion.z)
-// LOG_ADD(LOG_FLOAT, qw, &stateSweep.attitudeQuaternion.w)
-// LOG_GROUP_STOP(stateEstimateSweep)
 
 
 LOG_GROUP_START(stateEstimate)
@@ -852,29 +834,6 @@ LOG_ADD(LOG_FLOAT, qw, &stateSweep.attitudeQuaternion.w)
 LOG_GROUP_STOP(stateEstimate)
 
 
-// LOG_GROUP_START(stateEstimateFlow)
-// LOG_ADD(LOG_FLOAT, x, &stateFlow.position.x)
-// LOG_ADD(LOG_FLOAT, y, &stateFlow.position.y)
-// LOG_ADD(LOG_FLOAT, z, &stateFlow.position.z)
-
-// LOG_ADD(LOG_FLOAT, vx, &stateFlow.velocity.x)
-// LOG_ADD(LOG_FLOAT, vy, &stateFlow.velocity.y)
-// LOG_ADD(LOG_FLOAT, vz, &stateFlow.velocity.z)
-
-// LOG_ADD(LOG_FLOAT, ax, &stateFlow.acc.x)
-// LOG_ADD(LOG_FLOAT, ay, &stateFlow.acc.y)
-// LOG_ADD(LOG_FLOAT, az, &stateFlow.acc.z)
-
-// LOG_ADD(LOG_FLOAT, roll, &stateFlow.attitude.roll)
-// LOG_ADD(LOG_FLOAT, pitch, &stateFlow.attitude.pitch)
-// LOG_ADD(LOG_FLOAT, yaw, &stateFlow.attitude.yaw)
-
-// LOG_ADD(LOG_FLOAT, qx, &stateFlow.attitudeQuaternion.x)
-// LOG_ADD(LOG_FLOAT, qy, &stateFlow.attitudeQuaternion.y)
-// LOG_ADD(LOG_FLOAT, qz, &stateFlow.attitudeQuaternion.z)
-// LOG_ADD(LOG_FLOAT, qw, &stateFlow.attitudeQuaternion.w)
-// LOG_GROUP_STOP(stateEstimateFlow)
-
 
 // LOG_GROUP_START(stateEstimateZ)
 // LOG_ADD(LOG_INT16, x, &stateCompressed.x)                 // position - mm
@@ -895,45 +854,3 @@ LOG_GROUP_STOP(stateEstimate)
 // LOG_ADD(LOG_INT16, ratePitch, &stateCompressed.ratePitch)
 // LOG_ADD(LOG_INT16, rateYaw, &stateCompressed.rateYaw)
 // LOG_GROUP_STOP(stateEstimateZ)
-
-// LOG_GROUP_START(stateEstimateZSweep)
-// LOG_ADD(LOG_INT16, x, &stateCompressedSweep.x)                 // position - mm
-// LOG_ADD(LOG_INT16, y, &stateCompressedSweep.y)
-// LOG_ADD(LOG_INT16, z, &stateCompressedSweep.z)
-
-// LOG_ADD(LOG_INT16, vx, &stateCompressedSweep.vx)               // velocity - mm / sec
-// LOG_ADD(LOG_INT16, vy, &stateCompressedSweep.vy)
-// LOG_ADD(LOG_INT16, vz, &stateCompressedSweep.vz)
-
-// LOG_ADD(LOG_INT16, ax, &stateCompressedSweep.ax)               // acceleration - mm / sec^2
-// LOG_ADD(LOG_INT16, ay, &stateCompressedSweep.ay)
-// LOG_ADD(LOG_INT16, az, &stateCompressedSweep.az)
-
-// LOG_ADD(LOG_UINT32, quat, &stateCompressedSweep.quat)           // compressed quaternion, see quatcompress.h
-
-// LOG_ADD(LOG_INT16, rateRoll, &stateCompressedSweep.rateRoll)   // angular velocity - milliradians / sec
-// LOG_ADD(LOG_INT16, ratePitch, &stateCompressedSweep.ratePitch)
-// LOG_ADD(LOG_INT16, rateYaw, &stateCompressedSweep.rateYaw)
-// LOG_GROUP_STOP(stateEstimateZ)
-
-
-// LOG_GROUP_START(stateEstimateZFlow)
-// LOG_ADD(LOG_INT16, x, &stateCompressedFlow.x)                 // position - mm
-// LOG_ADD(LOG_INT16, y, &stateCompressedFlow.y)
-// LOG_ADD(LOG_INT16, z, &stateCompressedFlow.z)
-
-// LOG_ADD(LOG_INT16, vx, &stateCompressedFlow.vx)               // velocity - mm / sec
-// LOG_ADD(LOG_INT16, vy, &stateCompressedFlow.vy)
-// LOG_ADD(LOG_INT16, vz, &stateCompressedFlow.vz)
-
-// LOG_ADD(LOG_INT16, ax, &stateCompressedFlow.ax)               // acceleration - mm / sec^2
-// LOG_ADD(LOG_INT16, ay, &stateCompressedFlow.ay)
-// LOG_ADD(LOG_INT16, az, &stateCompressedFlow.az)
-
-// LOG_ADD(LOG_UINT32, quat, &stateCompressedFlow.quat)           // compressed quaternion, see quatcompress.h
-
-// LOG_ADD(LOG_INT16, rateRoll, &stateCompressedFlow.rateRoll)   // angular velocity - milliradians / sec
-// LOG_ADD(LOG_INT16, ratePitch, &stateCompressedFlow.ratePitch)
-// LOG_ADD(LOG_INT16, rateYaw, &stateCompressedFlow.rateYaw)
-// LOG_GROUP_STOP(stateEstimateZ)
-

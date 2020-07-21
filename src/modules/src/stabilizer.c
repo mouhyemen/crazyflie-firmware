@@ -61,17 +61,167 @@ static bool startPropTest = false;
 
 uint32_t inToOutLatency;
 
+
+/**
+ * Supporting and utility functions
+ */
+
+static inline void mat_mult(const arm_matrix_instance_f32 * pSrcA, const arm_matrix_instance_f32 * pSrcB, arm_matrix_instance_f32 * pDst)
+  { configASSERT(ARM_MATH_SUCCESS == arm_mat_mult_f32(pSrcA, pSrcB, pDst)); }
+
+
+
+/* Variables for computing transforms:
+Tor - Transform of robot pose in odometry frame (use stateFlow)
+Ror - Attitude matrix of robot pose in odometry frame (use stateFlow.q)
+tor - Position of robot pose in odometry frame (use stateFlow.x/y/z)
+
+Twr - Transform of robot pose in global frame (use stateSweep)
+Rwr - Attitude matrix of robot pose in global frame (use stateSweep.q)
+twr - Position of robot pose in global frame (use stateSweep.x/y/z)
+*/
+static arm_matrix_instance_f32 Tor;
+static arm_matrix_instance_f32 Tor_inv;
+
+// static arm_matrix_instance_f32 Twr;
+
+/*
+  Computes a 4x4 homogeneous transformation matrix T 
+  from 3x3 attitude matrix R and 3x1 position vector t.
+  T = [ R   t ; 0 0 0 1]
+  T = [ R00 R01 R02 t0
+        R10 R11 R12 t1
+        R20 R21 R22 t2      
+         0   0   0   1 ]
+*/
+static void computeTransform(arm_matrix_instance_f32* T, const state_t* state) {
+  float qw;  // quaternion constant
+  float qx;  // quaternion along x
+  float qy;  // quaternion along y
+  float qz;  // quaternion along z
+  qw = state->attitudeQuaternion.w;
+  qx = state->attitudeQuaternion.x;
+  qy = state->attitudeQuaternion.y;
+  qz = state->attitudeQuaternion.z;
+
+  // Compute R using state's quaternion estimates
+  float R[3][3];  // attitude matrix
+  R[0][0] = qw * qw + qx * qx - qy * qy - qz * qz;
+  R[0][1] = 2 * qx * qy - 2 * qw * qz;
+  R[0][2] = 2 * qx * qz + 2 * qw * qy;
+
+  R[1][0] = 2 * qx * qy + 2 * qw * qz;
+  R[1][1] = qw * qw - qx * qx + qy * qy - qz * qz;
+  R[1][2] = 2 * qy * qz - 2 * qw * qx;
+
+  R[2][0] = 2 * qx * qz - 2 * qw * qy;
+  R[2][1] = 2 * qy * qz + 2 * qw * qx;
+  R[2][2] = qw * qw - qx * qx - qy * qy + qz * qz;
+
+  // Compute t using state's position estimates
+  float t[3];     // position vector
+  t[0] = state->position.x;
+  t[1] = state->position.y;
+  t[2] = state->position.z;
+
+  // Compute T transform using R and t
+  const float32_t T_array[16] = {
+    R[0][0] , R[0][1] , R[0][2] , t[0]  ,
+    R[1][0] , R[1][1] , R[1][2] , t[1]  ,
+    R[2][0] , R[2][1] , R[2][2] , t[2]  ,
+      0     ,   0     ,   0     ,   1   ,
+  };  
+  
+  arm_mat_init_f32(T, 4, 4, (float32_t *)T_array);
+}
+
+
+/*
+  Computes a 4x4 homogeneous transformation matrix T inverse
+  from 3x3 attitude matrix R and 3x1 position vector t.
+  Tinv = [ R' -R'*t; 0 0 0 1]
+  Tinv = [R00 R10 R20 
+          R01 R11 R21  -R'*t
+          R02 R12 R22       
+           0   0   0    1 ]
+
+*/
+static void computeTransformInverse(arm_matrix_instance_f32* Tinv, const state_t* state) {
+  float qw;  // quaternion constant
+  float qx;  // quaternion along x
+  float qy;  // quaternion along y
+  float qz;  // quaternion along z
+  qw = state->attitudeQuaternion.w;
+  qx = state->attitudeQuaternion.x;
+  qy = state->attitudeQuaternion.y;
+  qz = state->attitudeQuaternion.z;
+
+  // Compute R using state's quaternion estimates
+  float R[3][3];  // attitude matrix
+  R[0][0] = qw * qw + qx * qx - qy * qy - qz * qz;
+  R[0][1] = 2 * qx * qy - 2 * qw * qz;
+  R[0][2] = 2 * qx * qz + 2 * qw * qy;
+
+  R[1][0] = 2 * qx * qy + 2 * qw * qz;
+  R[1][1] = qw * qw - qx * qx + qy * qy - qz * qz;
+  R[1][2] = 2 * qy * qz - 2 * qw * qx;
+
+  R[2][0] = 2 * qx * qz - 2 * qw * qy;
+  R[2][1] = 2 * qy * qz + 2 * qw * qx;
+  R[2][2] = qw * qw - qx * qx - qy * qy + qz * qz;
+
+  // Compute t using state's position estimates
+  float t[3];     // position vector
+  t[0] = state->position.x;
+  t[1] = state->position.y;
+  t[2] = state->position.z;
+
+  // Compute R' * t
+  float Rt[3];
+  Rt[0] = R[0][0]*t[0] + R[1][0]*t[1] + R[2][0]*t[2] ;
+  Rt[1] = R[0][1]*t[0] + R[1][1]*t[1] + R[2][1]*t[2] ;
+  Rt[2] = R[0][2]*t[0] + R[1][2]*t[1] + R[2][2]*t[2] ;
+
+  // Compute Tinv transform using R and t
+  const float32_t Tinv_array[16] = {
+    R[0][0] , R[1][0] , R[2][0] , -Rt[0],
+    R[0][1] , R[1][1] , R[2][1] , -Rt[1],
+    R[0][2] , R[1][2] , R[2][2] , -Rt[2],
+      0     ,   0     ,   0     ,   1   ,
+  };
+  arm_mat_init_f32(Tinv, 4, 4, (float32_t *)Tinv_array);
+}
+
+
+
+
+// static void getStatefromTransform(state_t* state, const arm_matrix_instance_f32* T) {
+// }
+
+
+
+
 // State variables for the stabilizer
 static setpoint_t setpoint;
 static sensorData_t sensorData;
 // static state_t state;
-static state_t stateSweep;  // same as `state` except it does not include flow measurements
-static state_t stateFlow;   // same as `state` except it does not include sweep measurements
-static state_t stateLag; // delayed state estimate, earliest state in the stateBuffer
+
+
+/*
+  Variables for creating two separate state estimates (from lighthouse & flowdeck).
+  Also, for fusing the two measurements and creating a corrected state estimate.
+  A buffer is created for storing past state estimates - this is for emulating latencies.
+*/
 #define NUM_OF_STATES_IN_BUFFER 1 // number of states stored relates to latency in milliseconds
 #define BUFFER_TICK_INTERVAL 1 // tick interval of states in buffer
 #define DELAYED_STATE (NUM_OF_STATES_IN_BUFFER - 1) // latency = # states in buffer * buffer_tick_interval
 static state_t stateBuffer[NUM_OF_STATES_IN_BUFFER]; // buffer of state estimates from t-N up to t
+
+static state_t stateSweep;  // same as `state` except it does not include flow measurements
+static state_t stateFlow;   // same as `state` except it does not include sweep measurements
+static state_t stateLag; // delayed state estimate, earliest state in the stateBuffer
+// static state_t stateCorrect; // corrected state estimate using transform compensation
+
 static control_t control;
 
 static StateEstimatorType estimatorType;
@@ -383,7 +533,6 @@ static void stabilizerTask(void* param)
       compressStateSweep();
       compressStateFlow();
 
-
       /* Introduce latency in the state estimate. Create a buffer
       to store values of the state estimate. Based on the latency,
       use an earlier state estimate and feed it to the controller.
@@ -403,8 +552,77 @@ static void stabilizerTask(void* param)
       if (tick % BUFFER_TICK_INTERVAL == 0) {
         state_counter_index++;
       }
-      
-      // combine stateSweep and stateFlow into stateCorrected
+
+      // Compute transforms Tor, Twr
+      computeTransform(&Tor, &stateFlow);   // pose in odometry frame using stateFlow
+      // computeTransform(&Twr, &stateSweep);  // pose in world frame using stateSweep
+
+      // Check elements of transform matrix Tor
+      if (tick % 2500 == 0) {
+        double Tor_11 = Tor.pData[0];
+        double Tor_12 = Tor.pData[1];
+        double Tor_13 = Tor.pData[2];
+        double Tor_14 = Tor.pData[3];
+
+        double Tor_21 = Tor.pData[4];
+        double Tor_22 = Tor.pData[5];
+        double Tor_23 = Tor.pData[6];
+        double Tor_24 = Tor.pData[7];
+
+        double Tor_31 = Tor.pData[8];
+        double Tor_32 = Tor.pData[9];
+        double Tor_33 = Tor.pData[10];
+        double Tor_34 = Tor.pData[11];
+
+        double Tor_41 = Tor.pData[12];
+        double Tor_42 = Tor.pData[13];
+        double Tor_43 = Tor.pData[14];
+        double Tor_44 = Tor.pData[15];
+
+        double xFl = stateFlow.position.x;
+        double yFl = stateFlow.position.y;
+        double zFl = stateFlow.position.z;
+
+        consolePrintf("Tor: \n");
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_11, Tor_12, Tor_13, Tor_14);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_21, Tor_22, Tor_23, Tor_24);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_31, Tor_32, Tor_33, Tor_34);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_41, Tor_42, Tor_43, Tor_44);
+        consolePrintf("     -----  \n");
+        consolePrintf(" %5.6f %5.6f %5.6f \n\n", xFl, yFl, zFl);
+      }
+
+
+      computeTransformInverse(&Tor_inv, &stateFlow);  // computes inverse of Tor
+      // Check elements of transform inverse matrix Tor_inv
+      if (tick % 2500 == 0) {
+        double Tor_inv_11 = Tor_inv.pData[0];
+        double Tor_inv_12 = Tor_inv.pData[1];
+        double Tor_inv_13 = Tor_inv.pData[2];
+        double Tor_inv_14 = Tor_inv.pData[3];
+
+        double Tor_inv_21 = Tor_inv.pData[4];
+        double Tor_inv_22 = Tor_inv.pData[5];
+        double Tor_inv_23 = Tor_inv.pData[6];
+        double Tor_inv_24 = Tor_inv.pData[7];
+
+        double Tor_inv_31 = Tor_inv.pData[8];
+        double Tor_inv_32 = Tor_inv.pData[9];
+        double Tor_inv_33 = Tor_inv.pData[10];
+        double Tor_inv_34 = Tor_inv.pData[11];
+
+        double Tor_inv_41 = Tor_inv.pData[12];
+        double Tor_inv_42 = Tor_inv.pData[13];
+        double Tor_inv_43 = Tor_inv.pData[14];
+        double Tor_inv_44 = Tor_inv.pData[15];
+
+        consolePrintf("Tor_inv: \n");
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_inv_11, Tor_inv_12, Tor_inv_13, Tor_inv_14);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_inv_21, Tor_inv_22, Tor_inv_23, Tor_inv_24);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_inv_31, Tor_inv_32, Tor_inv_33, Tor_inv_34);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n\n", Tor_inv_41, Tor_inv_42, Tor_inv_43, Tor_inv_44);
+      }
+
 
       commanderGetSetpoint(&setpoint, &stateFlow);
       compressSetpoint();

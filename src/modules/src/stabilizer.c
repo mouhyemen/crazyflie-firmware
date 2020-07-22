@@ -222,13 +222,13 @@ static void getStatefromTransform(state_t* state, const float32_t* T_array) {
 
 
 
-// Displays elements of transform matrix as 4 x 4 on cfclient's console
-static void displayTransform( const arm_matrix_instance_f32* Tor_inv, 
+// Displays elements of transform matrix T on cfclient's console
+static void displayTransform( const arm_matrix_instance_f32* T, 
                               const uint32_t srcRows, 
                               const uint32_t srcColumns) {
   for (int i = 0; i < srcRows; i++) {
     for (int j = 0; j < srcColumns; j++) {
-      double tij = Tor_inv->pData[i*srcColumns + j];
+      double tij = T->pData[i*srcColumns + j];
       consolePrintf(" %5.4f ", tij);
     }
     consolePrintf("\n");
@@ -261,6 +261,9 @@ static state_t stateSweep;    // same as `state` except it does not include flow
 static state_t stateFlow;     // same as `state` except it does not include sweep measurements
 static state_t stateLag;      // delayed state estimate, earliest state in the stateBuffer
 static state_t stateCorrect;  // corrected state estimate using transform compensation
+
+#define CORRECT_IN_MSEC 75  // period of pose1 - used for fusion/correction
+#define LATENCY 0           // latency in pose1 arriving
 
 static control_t control;
 
@@ -549,6 +552,7 @@ static void stabilizerTask(void* param)
   DEBUG_PRINT("Ready to fly.\n");
 
   unsigned int state_counter_index = 0;
+  unsigned int tick_msec = 0;
   // bool use_laggy_state = false;
 
   /*
@@ -558,18 +562,24 @@ static void stabilizerTask(void* param)
   srcRows = 4;
   srcColumns = 4;
 
-  // 4x4 Transformation homogeneous matrices
-  arm_matrix_instance_f32 Tor;      // robot pose in odometry frame
-  arm_matrix_instance_f32 Tor_inv;  // odometry pose in robot frame
-  // arm_matrix_instance_f32 Twr;      // robot pose in world frame
-  // arm_matrix_instance_f32 Twcr;     // corrected robot pose in world frame
-  arm_matrix_instance_f32 I;        // identity matrix
+  /*
+  4x4 Transformation homogeneous matrices
+    Tor_t   : robot pose in odometry frame at current time t
+    TorInv_n: odometry pose in robot frame at past time (t - n) , where n is period of pose1
+    Twr_nd  : robot pose in world frame at past time (t - (n+d)), where d is delay of pose1 arriving
+    Twcr_t  : corrected robot pose in world frame at current time t
+  */
+  arm_matrix_instance_f32 Tor_t;
+  arm_matrix_instance_f32 TorInv_n;
+  arm_matrix_instance_f32 Twr_nd;
+  arm_matrix_instance_f32 Two_n;
+  arm_matrix_instance_f32 Twcr_t;
 
   // Create arrays to store transforms
-  static float32_t Tor_array[16];
-  static float32_t Tor_inv_array[16];
-  // static float32_t Twr_array[16];
-  // static float32_t Twcr_array[16];
+  static float32_t arrayTor_t[16];
+  static float32_t arrayTorInv_n[16];
+  static float32_t arrayTwr_nd[16];
+  // static float32_t arratTwcr_t[16];
 
   // Initialize identity matrix with only zeroes currently
   static float32_t tmp[16] = {
@@ -578,7 +588,12 @@ static void stabilizerTask(void* param)
     0, 0, 0, 1,
     0, 0, 0, 1,
   }; // initialize to zeroes
+  arm_matrix_instance_f32 I;
   arm_mat_init_f32(&I, srcRows, srcColumns, (float32_t *)tmp);
+  arm_mat_init_f32(&Twr_nd, srcRows, srcColumns, (float32_t *)tmp);
+  arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)tmp);
+  arm_mat_init_f32(&Two_n, srcRows, srcColumns, (float32_t *)tmp);
+  arm_mat_init_f32(&Twcr_t, srcRows, srcColumns, (float32_t *)tmp);
 
   while(1) {
     // The sensor should unlock at 1kHz
@@ -633,41 +648,69 @@ static void stabilizerTask(void* param)
       }
 
 
+
       /*
-        Compute transforms:
-          Tor 
+        LATENCY COMPENSATION ROUTINE
       */
-      computeTransform(Tor_array, &stateFlow);   // pose in odometry frame using stateFlow
-      arm_mat_init_f32(&Tor, srcRows, srcColumns, (float32_t *)Tor_array);
 
-      computeTransformInverse(Tor_inv_array, &stateFlow);  // computes inverse of Tor
-      arm_mat_init_f32(&Tor_inv, srcRows, srcColumns, (float32_t *)Tor_inv_array);
-
-
-      /* 
+      /* 1.
         Create a copy of stateFlow onto stateCorrect to ensure
         same velocity, acceleration, quaternion estimates are used for stateCorrect.
       */
       memcpy(&stateCorrect, &stateFlow, sizeof(state_t));
 
-      /*
-        Apply compensation module here.
+      /* 2.
+        Compute transforms:
+          Tor_t   : robot pose in odometry frame at current time t
+          TorInv_n: odometry pose in robot frame at past time (t - n) , n is period of pose1
+          Twr_nd  : robot pose in world frame at past time (t - (n+d)), d is delay of pose1 arriving
+          Two_n   : odometry pose in world frame at past time (t - n)
+          Twcr_t  : corrected robot pose in world frame at current time t
       */
 
+      // Get the current transform of pose2
+      // First we get array of arrayTor_t and then use it create matrix Tor_t
+      computeTransform(arrayTor_t, &stateFlow);
+      arm_mat_init_f32(&Tor_t, srcRows, srcColumns, (float32_t *)arrayTor_t);
 
-      /*
+      // Get the periodic/sparse transform of pose1 - stateSweep while account for latency
+      if (tick_msec >= (CORRECT_IN_MSEC - LATENCY)) {
+        computeTransform(arrayTwr_nd, &stateSweep);
+        arm_mat_init_f32(&Twr_nd, srcRows, srcColumns, (float32_t *)arrayTwr_nd);
+      }
+
+      // Get the inverse transform of pose2 during the correction step
+      if (tick % CORRECT_IN_MSEC == 0) {
+        computeTransformInverse(arrayTorInv_n, &stateFlow);  // computes inverse of Tor
+        arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)arrayTorInv_n);
+        tick_msec = 0;
+      }
+      tick_msec += 1;
+
+      /* 3. 
+        Perform corrected robot pose in world frame
+        Twcr_t  = Twr_nd * TorInv_n * Tor_t
+                = Two_n * Tor_t
+      */
+      mat_mult(&Twr_nd, &TorInv_n, &Two_n);
+      mat_mult(&Two_n, &Tor_t, &Twcr_t);
+
+      /* 5.
         Update stateCorrect's position and euler estimates from
         corrected transformation matrix.
       */
-      getStatefromTransform(&stateCorrect, Tor_array);
+      getStatefromTransform(&stateCorrect, Twcr_t.pData);
 
-      // Check elements of Tor, Tor_inv, stateFlow, stateCorrect
+      // Check if T_t * inv(T_n) produces identity. Ideally, it should not due to periodicity.
+      mat_mult(&Tor_t, &TorInv_n, &I);
+
+      // Check elements of Tor, TorInv_n, stateFlow, stateCorrect
       if (tick % 2500 == 0) {
-        consolePrintf("Tor:\n");
-        displayTransform(&Tor, srcRows, srcColumns);
+        consolePrintf("Tor at time t:\n");
+        displayTransform(&Tor_t, srcRows, srcColumns);
 
-        consolePrintf("Tor_inv:\n");
-        displayTransform(&Tor_inv, srcRows, srcColumns);
+        consolePrintf("TorInv_n at time t-n:\n");
+        displayTransform(&TorInv_n, srcRows, srcColumns);
 
         double xFl = stateFlow.position.x;
         double yFl = stateFlow.position.y;
@@ -690,34 +733,11 @@ static void stabilizerTask(void* param)
         consolePrintf("stateCorrect:\n");
         consolePrintf(" pos: %5.6f %5.6f %5.6f ,", xC, yC, zC);
         consolePrintf(" eul: %5.6f %5.6f %5.6f\n\n", rC, pC, ywC);
+
+        consolePrintf("Tor * TorInv:\n");
+        displayTransform(&TorInv_n, srcRows, srcColumns);
       }
 
-      // Check if T * inv(T) produces identity
-      mat_mult(&Tor, &Tor_inv, &I);
-
-      if (tick % 2500 == 0) {
-        double I_11 = I.pData[0];
-        double I_12 = I.pData[1];
-        double I_13 = I.pData[2];
-        double I_14 = I.pData[3];
-        double I_21 = I.pData[4];
-        double I_22 = I.pData[5];
-        double I_23 = I.pData[6];
-        double I_24 = I.pData[7];
-        double I_31 = I.pData[8];
-        double I_32 = I.pData[9];
-        double I_33 = I.pData[10];
-        double I_34 = I.pData[11];
-        double I_41 = I.pData[12];
-        double I_42 = I.pData[13];
-        double I_43 = I.pData[14];
-        double I_44 = I.pData[15];
-        consolePrintf("I: \n");
-        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_11, I_12, I_13, I_14);
-        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_21, I_22, I_23, I_24);
-        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_31, I_32, I_33, I_34);
-        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n\n", I_41, I_42, I_43, I_44);
-      }
 
 
       commanderGetSetpoint(&setpoint, &stateFlow);
@@ -1125,6 +1145,10 @@ LOG_ADD(LOG_FLOAT, x_Fl, &stateFlow.position.x)
 LOG_ADD(LOG_FLOAT, y_Fl, &stateFlow.position.y)
 LOG_ADD(LOG_FLOAT, z_Fl, &stateFlow.position.z)
 
+LOG_ADD(LOG_FLOAT, x_Cr, &stateCorrect.position.x)
+LOG_ADD(LOG_FLOAT, y_Cr, &stateCorrect.position.y)
+LOG_ADD(LOG_FLOAT, z_Cr, &stateCorrect.position.z)
+
 LOG_ADD(LOG_FLOAT, vx, &stateSweep.velocity.x)
 LOG_ADD(LOG_FLOAT, vy, &stateSweep.velocity.y)
 LOG_ADD(LOG_FLOAT, vz, &stateSweep.velocity.z)
@@ -1140,6 +1164,10 @@ LOG_ADD(LOG_FLOAT, yaw_Lh, &stateSweep.attitude.yaw)
 LOG_ADD(LOG_FLOAT, roll_Fl, &stateFlow.attitude.roll)
 LOG_ADD(LOG_FLOAT, pitch_Fl, &stateFlow.attitude.pitch)
 LOG_ADD(LOG_FLOAT, yaw_Fl, &stateFlow.attitude.yaw)
+
+LOG_ADD(LOG_FLOAT, roll_Cr, &stateCorrect.attitude.roll)
+LOG_ADD(LOG_FLOAT, pitch_Cr, &stateCorrect.attitude.pitch)
+LOG_ADD(LOG_FLOAT, yaw_Cr, &stateCorrect.attitude.yaw)
 
 LOG_ADD(LOG_FLOAT, qx, &stateSweep.attitudeQuaternion.x)
 LOG_ADD(LOG_FLOAT, qy, &stateSweep.attitudeQuaternion.y)

@@ -36,7 +36,7 @@
 #include "debug.h"
 #include "motors.h"
 #include "pm.h"
-
+#include "arm_math.h"
 #include "stabilizer.h"
 
 #include "sensors.h"
@@ -51,6 +51,9 @@
 #include "quatcompress.h"
 #include "statsCnt.h"
 #include "static_mem.h"
+
+#define DEG_TO_RAD (PI/180.0f)
+#define RAD_TO_DEG (180.0f/PI)
 
 static bool isInit;
 static bool emergencyStop = false;
@@ -71,21 +74,6 @@ static inline void mat_mult(const arm_matrix_instance_f32 * pSrcA, const arm_mat
 
 
 
-/* Variables for computing transforms:
-Tor - Transform of robot pose in odometry frame (use stateFlow)
-Ror - Attitude matrix of robot pose in odometry frame (use stateFlow.q)
-tor - Position of robot pose in odometry frame (use stateFlow.x/y/z)
-
-Twr - Transform of robot pose in global frame (use stateSweep)
-Rwr - Attitude matrix of robot pose in global frame (use stateSweep.q)
-twr - Position of robot pose in global frame (use stateSweep.x/y/z)
-*/
-static float tmp[4*4];
-static arm_matrix_instance_f32 Tor = {4, 4, tmp};
-static arm_matrix_instance_f32 Tor_inv = {4, 4, tmp};
-static arm_matrix_instance_f32 I = {4, 4, tmp};
-
-// static arm_matrix_instance_f32 Twr;
 
 /*
   Computes a 4x4 homogeneous transformation matrix T 
@@ -96,18 +84,18 @@ static arm_matrix_instance_f32 I = {4, 4, tmp};
         R20 R21 R22 t2      
          0   0   0   1 ]
 */
-static void computeTransform(arm_matrix_instance_f32* T, const state_t* state) {
-  double qw;  // quaternion constant
-  double qx;  // quaternion along x
-  double qy;  // quaternion along y
-  double qz;  // quaternion along z
+static void computeTransform(float32_t* T_array, const state_t* state) {
+  float qw;  // quaternion constant
+  float qx;  // quaternion along x
+  float qy;  // quaternion along y
+  float qz;  // quaternion along z
   qw = state->attitudeQuaternion.w;
   qx = state->attitudeQuaternion.x;
   qy = state->attitudeQuaternion.y;
   qz = state->attitudeQuaternion.z;
 
   // Compute R using state's quaternion estimates
-  double R[3][3];  // attitude matrix
+  float R[3][3];  // attitude matrix
   R[0][0] = qw * qw + qx * qx - qy * qy - qz * qz;
   R[0][1] = 2 * qx * qy - 2 * qw * qz;
   R[0][2] = 2 * qx * qz + 2 * qw * qy;
@@ -121,20 +109,20 @@ static void computeTransform(arm_matrix_instance_f32* T, const state_t* state) {
   R[2][2] = qw * qw - qx * qx - qy * qy + qz * qz;
 
   // Compute t using state's position estimates
-  double t[3];     // position vector
+  float t[3];     // position vector
   t[0] = state->position.x;
   t[1] = state->position.y;
   t[2] = state->position.z;
 
   // Compute T transform using R and t
-  const float32_t T_array[16] = {
+  float32_t tmp_array[16] = {
     R[0][0] , R[0][1] , R[0][2] , t[0]  ,
     R[1][0] , R[1][1] , R[1][2] , t[1]  ,
     R[2][0] , R[2][1] , R[2][2] , t[2]  ,
       0     ,   0     ,   0     ,   1   ,
-  };  
-  
-  arm_mat_init_f32(T, 4, 4, (float32_t *)T_array);
+  }; 
+
+  memcpy(T_array, tmp_array, sizeof(tmp_array) );
 }
 
 
@@ -148,18 +136,18 @@ static void computeTransform(arm_matrix_instance_f32* T, const state_t* state) {
            0   0   0    1 ]
 
 */
-static void computeTransformInverse(arm_matrix_instance_f32* Tinv, const state_t* state) {
-  double qw;  // quaternion constant
-  double qx;  // quaternion along x
-  double qy;  // quaternion along y
-  double qz;  // quaternion along z
+static void computeTransformInverse(float32_t* Tinv_array, const state_t* state) {
+  float qw;  // quaternion constant
+  float qx;  // quaternion along x
+  float qy;  // quaternion along y
+  float qz;  // quaternion along z
   qw = state->attitudeQuaternion.w;
   qx = state->attitudeQuaternion.x;
   qy = state->attitudeQuaternion.y;
   qz = state->attitudeQuaternion.z;
 
   // Compute R using state's quaternion estimates
-  double R[3][3];  // attitude matrix
+  float R[3][3];  // attitude matrix
   R[0][0] = qw * qw + qx * qx - qy * qy - qz * qz;
   R[0][1] = 2 * qx * qy - 2 * qw * qz;
   R[0][2] = 2 * qx * qz + 2 * qw * qy;
@@ -173,65 +161,75 @@ static void computeTransformInverse(arm_matrix_instance_f32* Tinv, const state_t
   R[2][2] = qw * qw - qx * qx - qy * qy + qz * qz;
 
   // Compute t using state's position estimates
-  double t[3];     // position vector
+  float t[3];     // position vector
   t[0] = state->position.x;
   t[1] = state->position.y;
   t[2] = state->position.z;
 
   // Compute R' * t
-  double Rt[3];
+  float Rt[3];
   Rt[0] = R[0][0]*t[0] + R[1][0]*t[1] + R[2][0]*t[2] ;
   Rt[1] = R[0][1]*t[0] + R[1][1]*t[1] + R[2][1]*t[2] ;
   Rt[2] = R[0][2]*t[0] + R[1][2]*t[1] + R[2][2]*t[2] ;
 
   // Compute Tinv transform using R and t
-  const float32_t Tinv_array[16] = {
+  float32_t tmp_inv_array[16] = {
     R[0][0] , R[1][0] , R[2][0] , -Rt[0],
     R[0][1] , R[1][1] , R[2][1] , -Rt[1],
     R[0][2] , R[1][2] , R[2][2] , -Rt[2],
       0     ,   0     ,   0     ,   1   ,
   };
-  arm_mat_init_f32(Tinv, 4, 4, (float32_t *)Tinv_array);
+  
+  memcpy(Tinv_array, tmp_inv_array, sizeof(tmp_inv_array) );
 }
 
 
 
 
-// static void getStatefromTransform(state_t* state, const arm_matrix_instance_f32* T) {
-//   // initialize R 3x3 matrix and position vector t
-//   // double R[3][3];
-//   double t[3];
+static void getStatefromTransform(state_t* state, const float32_t* T_array) {
+  // populate R and t 
+  float R11 = T_array[ 0];
+  // float R12 = T_array[ 1];
+  // float R13 = T_array[ 2];
+  float t0  = T_array[ 3];
   
-//   // create a temporary transform matrix
-//   static arm_matrix_instance_f32 T_tmp = {4, 4, tmp};
-//   memcpy(&T_tmp, T, sizeof(T_tmp));
-
-//   // populate R and t 
-//   // R[0][0] = T_tmp->pData[0];
-//   // R[0][1] = T_tmp->pData[1];
-//   // R[0][2] = T_tmp->pData[2];
-//   t[0]    = T_tmp.pData[3];
-//   // t[0]    = T->pData[3];
+  float R21 = T_array[ 4];
+  // float R22 = T_array[ 5];
+  // float R23 = T_array[ 6];
+  float t1  = T_array[ 7];
   
-//   // R[1][0] = T_tmp->pData[4];
-//   // R[1][1] = T_tmp->pData[5];
-//   // R[1][2] = T_tmp->pData[6];
-//   t[1]    = T_tmp.pData[7];
-//   // t[1]    = T->pData[7];
+  float R31 = T_array[ 8];
+  float R32 = T_array[ 9];
+  float R33 = T_array[10];
+  float t2  = T_array[11];
   
-//   // R[2][0] = T_tmp->pData[8];
-//   // R[2][1] = T_tmp->pData[9];
-//   // R[2][2] = T_tmp->pData[10];
-//   t[2]    = T_tmp.pData[11];
-//   // t[2]    = T->pData[11];
+  // Compute euler angles from R
+  float roll  = 1.0*atan2(R32,R33);
+  float pitch = -atan2(-R31, sqrt( R32*R32 + R33*R33 ) );
+  float yaw   = 1.0*atan2(R21,R11);
 
-//   state->position.x = t[0];
-//   state->position.y = t[1];
-//   state->position.z = t[2];
+  state->position.x = t0;
+  state->position.y = t1;
+  state->position.z = t2;
 
-// }
+  state->attitude.roll = roll * RAD_TO_DEG;
+  state->attitude.pitch = pitch * RAD_TO_DEG;
+  state->attitude.yaw = yaw * RAD_TO_DEG;
+}
 
-
+// Displays elements of transform matrix as 4 x 4 on cfclient's console
+static void displayTransform( const arm_matrix_instance_f32* Tor_inv, 
+                              const uint32_t srcRows, 
+                              const uint32_t srcColumns) {
+  for (int i = 0; i < srcRows; i++) {
+    for (int j = 0; j < srcColumns; j++) {
+      double tij = Tor_inv->pData[i*srcColumns + j];
+      consolePrintf(" %5.4f ", tij);
+    }
+    consolePrintf("\n");
+  }
+consolePrintf("\n");
+}
 
 
 // State variables for the stabilizer
@@ -253,7 +251,7 @@ static state_t stateBuffer[NUM_OF_STATES_IN_BUFFER]; // buffer of state estimate
 static state_t stateSweep;    // same as `state` except it does not include flow measurements
 static state_t stateFlow;     // same as `state` except it does not include sweep measurements
 static state_t stateLag;      // delayed state estimate, earliest state in the stateBuffer
-// static state_t stateCorrect;  // corrected state estimate using transform compensation
+static state_t stateCorrect;  // corrected state estimate using transform compensation
 
 static control_t control;
 
@@ -535,6 +533,36 @@ static void stabilizerTask(void* param)
   unsigned int state_counter_index = 0;
   // bool use_laggy_state = false;
 
+  /*
+  Initializing variables for transforms
+  */
+  static float32_t tmp[16]; // initialize to zeroes
+
+  uint32_t srcRows, srcColumns;
+  srcRows = 4;
+  srcColumns = 4;
+
+  /* Variables for computing transforms:
+  Tor - Transform of robot pose in odometry frame (use stateFlow)
+  Ror - Attitude matrix of robot pose in odometry frame (use stateFlow.q)
+  tor - Position of robot pose in odometry frame (use stateFlow.x/y/z)
+
+  Twr - Transform of robot pose in global frame (use stateSweep)
+  Rwr - Attitude matrix of robot pose in global frame (use stateSweep.q)
+  twr - Position of robot pose in global frame (use stateSweep.x/y/z)
+  */
+
+  arm_matrix_instance_f32 Tor;
+  arm_matrix_instance_f32 Tor_inv;
+  arm_matrix_instance_f32 I;
+
+  // Create arrays to store transforms
+  static float32_t Tor_array[16];
+  static float32_t Tor_inv_array[16];
+
+  // Initialize identity matrix with only zeroes currently
+  arm_mat_init_f32(&I, srcRows, srcColumns, (float32_t *)tmp);
+
   while(1) {
     // The sensor should unlock at 1kHz
     sensorsWaitDataReady();
@@ -587,105 +615,72 @@ static void stabilizerTask(void* param)
       }
 
       // Compute transforms Tor, Twr
-      computeTransform(&Tor, &stateFlow);   // pose in odometry frame using stateFlow
-      // computeTransform(&Twr, &stateSweep);  // pose in world frame using stateSweep
+      computeTransform(Tor_array, &stateFlow);   // pose in odometry frame using stateFlow
+      arm_mat_init_f32(&Tor, srcRows, srcColumns, (float32_t *)Tor_array);
 
-      // // Check elements of transform matrix Tor
-      // if (tick % 2500 == 0) {
-      //   double Tor_11 = Tor.pData[0];
-      //   double Tor_12 = Tor.pData[1];
-      //   double Tor_13 = Tor.pData[2];
-      //   double Tor_14 = Tor.pData[3];
-      //   double Tor_21 = Tor.pData[4];
-      //   double Tor_22 = Tor.pData[5];
-      //   double Tor_23 = Tor.pData[6];
-      //   double Tor_24 = Tor.pData[7];
-      //   double Tor_31 = Tor.pData[8];
-      //   double Tor_32 = Tor.pData[9];
-      //   double Tor_33 = Tor.pData[10];
-      //   double Tor_34 = Tor.pData[11];
-      //   double Tor_41 = Tor.pData[12];
-      //   double Tor_42 = Tor.pData[13];
-      //   double Tor_43 = Tor.pData[14];
-      //   double Tor_44 = Tor.pData[15];
-      //   double xFl = stateFlow.position.x;
-      //   double yFl = stateFlow.position.y;
-      //   double zFl = stateFlow.position.z;
-      //   consolePrintf("Tor: \n");
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_11, Tor_12, Tor_13, Tor_14);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_21, Tor_22, Tor_23, Tor_24);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_31, Tor_32, Tor_33, Tor_34);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n\n", Tor_41, Tor_42, Tor_43, Tor_44);
-      //   consolePrintf(" stateFlow:  \n");
-      //   consolePrintf(" %5.6f %5.6f %5.6f \n\n", xFl, yFl, zFl);
-      // }
-
-
-      computeTransformInverse(&Tor_inv, &stateFlow);  // computes inverse of Tor
-      
-      // // Check elements of transform inverse matrix Tor_inv
-      // if (tick % 2500 == 0) {
-      //   double Tor_inv_11 = Tor_inv.pData[0];
-      //   double Tor_inv_12 = Tor_inv.pData[1];
-      //   double Tor_inv_13 = Tor_inv.pData[2];
-      //   double Tor_inv_14 = Tor_inv.pData[3];
-      //   double Tor_inv_21 = Tor_inv.pData[4];
-      //   double Tor_inv_22 = Tor_inv.pData[5];
-      //   double Tor_inv_23 = Tor_inv.pData[6];
-      //   double Tor_inv_24 = Tor_inv.pData[7];
-      //   double Tor_inv_31 = Tor_inv.pData[8];
-      //   double Tor_inv_32 = Tor_inv.pData[9];
-      //   double Tor_inv_33 = Tor_inv.pData[10];
-      //   double Tor_inv_34 = Tor_inv.pData[11];
-      //   double Tor_inv_41 = Tor_inv.pData[12];
-      //   double Tor_inv_42 = Tor_inv.pData[13];
-      //   double Tor_inv_43 = Tor_inv.pData[14];
-      //   double Tor_inv_44 = Tor_inv.pData[15];
-      //   consolePrintf("Tor_inv: \n");
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_inv_11, Tor_inv_12, Tor_inv_13, Tor_inv_14);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_inv_21, Tor_inv_22, Tor_inv_23, Tor_inv_24);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", Tor_inv_31, Tor_inv_32, Tor_inv_33, Tor_inv_34);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n\n", Tor_inv_41, Tor_inv_42, Tor_inv_43, Tor_inv_44);
-      // }
-
+      computeTransformInverse(Tor_inv_array, &stateFlow);  // computes inverse of Tor
+      arm_mat_init_f32(&Tor_inv, srcRows, srcColumns, (float32_t *)Tor_inv_array);
 
       // get state from transform [mainly position and euler angles]
-      // getStatefromTransform(&stateCorrect, &Tor);
-      // // Check elements of stateCorrect
-      // if (tick % 2500 == 0) {
-      //   double xC = stateCorrect.position.x;
-      //   double yC = stateCorrect.position.y;
-      //   double zC = stateCorrect.position.z;
-      //   consolePrintf("stateCorrect: \n");
-      //   consolePrintf(" %5.6f %5.6f %5.6f \n\n", xC, yC, zC);
-      // }
+      getStatefromTransform(&stateCorrect, Tor_array);
 
-      // multiply Tor and Tor_inv
+      // Check elements of Tor, Tor_inv, stateFlow, stateCorrect
+      if (tick % 2500 == 0) {
+        consolePrintf("Tor:\n");
+        displayTransform(&Tor, srcRows, srcColumns);
+
+        consolePrintf("Tor_inv:\n");
+        displayTransform(&Tor_inv, srcRows, srcColumns);
+
+        double xFl = stateFlow.position.x;
+        double yFl = stateFlow.position.y;
+        double zFl = stateFlow.position.z;
+        double rFl = stateFlow.attitude.roll;
+        double pFl = stateFlow.attitude.pitch;
+        double ywFl = stateFlow.attitude.yaw;
+        
+        consolePrintf("stateFlow:\n");
+        consolePrintf(" pos: %5.6f %5.6f %5.6f ,", xFl, yFl, zFl);
+        consolePrintf(" eul: %5.6f %5.6f %5.6f\n\n", rFl, pFl, ywFl);
+
+        double xC = stateCorrect.position.x;
+        double yC = stateCorrect.position.y;
+        double zC = stateCorrect.position.z;
+        double rC = stateCorrect.attitude.roll;
+        double pC = stateCorrect.attitude.pitch;
+        double ywC = stateCorrect.attitude.yaw;
+        
+        consolePrintf("stateCorrect:\n");
+        consolePrintf(" pos: %5.6f %5.6f %5.6f ,", xC, yC, zC);
+        consolePrintf(" eul: %5.6f %5.6f %5.6f\n\n", rC, pC, ywC);
+      }
+
+      // Check if T * inv(T) produces identity
       mat_mult(&Tor, &Tor_inv, &I);
 
-      // if (tick % 2500 == 0) {
-      //   double I_11 = I.pData[0];
-      //   double I_12 = I.pData[1];
-      //   double I_13 = I.pData[2];
-      //   double I_14 = I.pData[3];
-      //   double I_21 = I.pData[4];
-      //   double I_22 = I.pData[5];
-      //   double I_23 = I.pData[6];
-      //   double I_24 = I.pData[7];
-      //   double I_31 = I.pData[8];
-      //   double I_32 = I.pData[9];
-      //   double I_33 = I.pData[10];
-      //   double I_34 = I.pData[11];
-      //   double I_41 = I.pData[12];
-      //   double I_42 = I.pData[13];
-      //   double I_43 = I.pData[14];
-      //   double I_44 = I.pData[15];
-      //   consolePrintf("I: \n");
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_11, I_12, I_13, I_14);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_21, I_22, I_23, I_24);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_31, I_32, I_33, I_34);
-      //   consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n\n", I_41, I_42, I_43, I_44);
-      // }
+      if (tick % 2500 == 0) {
+        double I_11 = I.pData[0];
+        double I_12 = I.pData[1];
+        double I_13 = I.pData[2];
+        double I_14 = I.pData[3];
+        double I_21 = I.pData[4];
+        double I_22 = I.pData[5];
+        double I_23 = I.pData[6];
+        double I_24 = I.pData[7];
+        double I_31 = I.pData[8];
+        double I_32 = I.pData[9];
+        double I_33 = I.pData[10];
+        double I_34 = I.pData[11];
+        double I_41 = I.pData[12];
+        double I_42 = I.pData[13];
+        double I_43 = I.pData[14];
+        double I_44 = I.pData[15];
+        consolePrintf("I: \n");
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_11, I_12, I_13, I_14);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_21, I_22, I_23, I_24);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n", I_31, I_32, I_33, I_34);
+        consolePrintf(" %5.6f %5.6f %5.6f %5.6f\n\n", I_41, I_42, I_43, I_44);
+      }
 
 
       commanderGetSetpoint(&setpoint, &stateFlow);

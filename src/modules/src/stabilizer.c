@@ -185,7 +185,10 @@ static void computeTransformInverse(float32_t* Tinv_array, const state_t* state)
 
 
 
-
+/*
+  Get state position and euler angles from transformation homogeneous
+  matrix T.
+*/
 static void getStatefromTransform(state_t* state, const float32_t* T_array) {
   // populate R and t 
   float R11 = T_array[ 0];
@@ -217,6 +220,8 @@ static void getStatefromTransform(state_t* state, const float32_t* T_array) {
   state->attitude.yaw = yaw * RAD_TO_DEG;
 }
 
+
+
 // Displays elements of transform matrix as 4 x 4 on cfclient's console
 static void displayTransform( const arm_matrix_instance_f32* Tor_inv, 
                               const uint32_t srcRows, 
@@ -230,6 +235,10 @@ static void displayTransform( const arm_matrix_instance_f32* Tor_inv,
   }
 consolePrintf("\n");
 }
+
+
+
+
 
 
 // State variables for the stabilizer
@@ -258,7 +267,16 @@ static control_t control;
 static StateEstimatorType estimatorType;
 static ControllerType controllerType;
 
-typedef enum { configureAcc, measureNoiseFloor, measureProp, testBattery, restartBatTest, evaluateResult, testDone } TestState;
+typedef enum { 
+  configureAcc, 
+  measureNoiseFloor, 
+  measureProp, 
+  testBattery, 
+  restartBatTest, 
+  evaluateResult, 
+  testDone 
+} TestState;
+
 #ifdef RUN_PROP_TEST_AT_STARTUP
   static TestState testState = configureAcc;
 #else
@@ -536,31 +554,30 @@ static void stabilizerTask(void* param)
   /*
   Initializing variables for transforms
   */
-  static float32_t tmp[16]; // initialize to zeroes
-
   uint32_t srcRows, srcColumns;
   srcRows = 4;
   srcColumns = 4;
 
-  /* Variables for computing transforms:
-  Tor - Transform of robot pose in odometry frame (use stateFlow)
-  Ror - Attitude matrix of robot pose in odometry frame (use stateFlow.q)
-  tor - Position of robot pose in odometry frame (use stateFlow.x/y/z)
-
-  Twr - Transform of robot pose in global frame (use stateSweep)
-  Rwr - Attitude matrix of robot pose in global frame (use stateSweep.q)
-  twr - Position of robot pose in global frame (use stateSweep.x/y/z)
-  */
-
-  arm_matrix_instance_f32 Tor;
-  arm_matrix_instance_f32 Tor_inv;
-  arm_matrix_instance_f32 I;
+  // 4x4 Transformation homogeneous matrices
+  arm_matrix_instance_f32 Tor;      // robot pose in odometry frame
+  arm_matrix_instance_f32 Tor_inv;  // odometry pose in robot frame
+  // arm_matrix_instance_f32 Twr;      // robot pose in world frame
+  // arm_matrix_instance_f32 Twcr;     // corrected robot pose in world frame
+  arm_matrix_instance_f32 I;        // identity matrix
 
   // Create arrays to store transforms
   static float32_t Tor_array[16];
   static float32_t Tor_inv_array[16];
+  // static float32_t Twr_array[16];
+  // static float32_t Twcr_array[16];
 
   // Initialize identity matrix with only zeroes currently
+  static float32_t tmp[16] = {
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+  }; // initialize to zeroes
   arm_mat_init_f32(&I, srcRows, srcColumns, (float32_t *)tmp);
 
   while(1) {
@@ -594,10 +611,11 @@ static void stabilizerTask(void* param)
       compressStateSweep();
       compressStateFlow();
 
-      /* Introduce latency in the state estimate. Create a buffer
-      to store values of the state estimate. Based on the latency,
-      use an earlier state estimate and feed it to the controller.
-      Then use the next state estimate in the next iteration.
+      /* 
+        Introduce latency in the state estimate. Create a buffer
+        to store values of the state estimate. Based on the latency,
+        use an earlier state estimate and feed it to the controller.
+        Then use the next state estimate in the next iteration.
       */
       if (tick % BUFFER_TICK_INTERVAL == 0) {
         memcpy( &stateBuffer[state_counter_index % NUM_OF_STATES_IN_BUFFER], 
@@ -614,14 +632,33 @@ static void stabilizerTask(void* param)
         state_counter_index++;
       }
 
-      // Compute transforms Tor, Twr
+
+      /*
+        Compute transforms:
+          Tor 
+      */
       computeTransform(Tor_array, &stateFlow);   // pose in odometry frame using stateFlow
       arm_mat_init_f32(&Tor, srcRows, srcColumns, (float32_t *)Tor_array);
 
       computeTransformInverse(Tor_inv_array, &stateFlow);  // computes inverse of Tor
       arm_mat_init_f32(&Tor_inv, srcRows, srcColumns, (float32_t *)Tor_inv_array);
 
-      // get state from transform [mainly position and euler angles]
+
+      /* 
+        Create a copy of stateFlow onto stateCorrect to ensure
+        same velocity, acceleration, quaternion estimates are used for stateCorrect.
+      */
+      memcpy(&stateCorrect, &stateFlow, sizeof(state_t));
+
+      /*
+        Apply compensation module here.
+      */
+
+
+      /*
+        Update stateCorrect's position and euler estimates from
+        corrected transformation matrix.
+      */
       getStatefromTransform(&stateCorrect, Tor_array);
 
       // Check elements of Tor, Tor_inv, stateFlow, stateCorrect

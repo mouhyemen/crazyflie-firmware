@@ -552,7 +552,7 @@ static void stabilizerTask(void* param)
   DEBUG_PRINT("Ready to fly.\n");
 
   unsigned int state_counter_index = 0;
-  unsigned int tick_msec = 0;
+  unsigned int count_tick_msec = 0;
   // bool use_laggy_state = false;
 
   /*
@@ -571,9 +571,11 @@ static void stabilizerTask(void* param)
   */
   arm_matrix_instance_f32 Tor_t;
   arm_matrix_instance_f32 TorInv_n;
+  arm_matrix_instance_f32 Twr_n;
   arm_matrix_instance_f32 Twr_nd;
   arm_matrix_instance_f32 Two_n;
   arm_matrix_instance_f32 Twcr_t;
+  bool poseSweepReceived = false;
 
   // Create arrays to store transforms
   static float32_t arrayTor_t[16];
@@ -590,6 +592,7 @@ static void stabilizerTask(void* param)
   }; // initialize to zeroes
   arm_matrix_instance_f32 I;
   arm_mat_init_f32(&I, srcRows, srcColumns, (float32_t *)tmp);
+  arm_mat_init_f32(&Twr_n, srcRows, srcColumns, (float32_t *)tmp);
   arm_mat_init_f32(&Twr_nd, srcRows, srcColumns, (float32_t *)tmp);
   arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)tmp);
   arm_mat_init_f32(&Two_n, srcRows, srcColumns, (float32_t *)tmp);
@@ -668,13 +671,14 @@ static void stabilizerTask(void* param)
           Twcr_t  : corrected robot pose in world frame at current time t
       */
 
-      // Get the current transform of pose2
+      // Get the current transform of pose2 from odometry frame
       // First we get array of arrayTor_t and then use it create matrix Tor_t
       computeTransform(arrayTor_t, &stateFlow);
       arm_mat_init_f32(&Tor_t, srcRows, srcColumns, (float32_t *)arrayTor_t);
 
       // Get the periodic/sparse transform of pose1 - stateSweep while account for latency
-      if (tick_msec >= (CORRECT_IN_MSEC - LATENCY)) {
+      if (count_tick_msec >= (CORRECT_IN_MSEC - LATENCY) && poseSweepReceived == false) {
+        poseSweepReceived = true;
         computeTransform(arrayTwr_nd, &stateSweep);
         arm_mat_init_f32(&Twr_nd, srcRows, srcColumns, (float32_t *)arrayTwr_nd);
       }
@@ -683,9 +687,13 @@ static void stabilizerTask(void* param)
       if (tick % CORRECT_IN_MSEC == 0) {
         computeTransformInverse(arrayTorInv_n, &stateFlow);  // computes inverse of Tor
         arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)arrayTorInv_n);
-        tick_msec = 0;
+
+        arm_mat_init_f32(&Twr_n, srcRows, srcColumns, (float32_t *) Twr_nd.pData);
+
+        count_tick_msec = 0;
+        poseSweepReceived = false;
       }
-      tick_msec += 1;
+      count_tick_msec += 1;
 
       /* 3. 
         Perform corrected robot pose in world frame
@@ -701,7 +709,7 @@ static void stabilizerTask(void* param)
       */
       getStatefromTransform(&stateCorrect, Twcr_t.pData);
 
-      // Check if T_t * inv(T_n) produces identity. Ideally, it should not due to periodicity.
+      //T_t * inv(T_n) should not equal identity due to current and elapsed odometry transforms.
       mat_mult(&Tor_t, &TorInv_n, &I);
 
       // Check elements of Tor, TorInv_n, stateFlow, stateCorrect

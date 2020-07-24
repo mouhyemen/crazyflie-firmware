@@ -257,13 +257,21 @@ static sensorData_t sensorData;
 #define DELAYED_STATE (NUM_OF_STATES_IN_BUFFER - 1) // latency = # states in buffer * buffer_tick_interval
 static state_t stateBuffer[NUM_OF_STATES_IN_BUFFER]; // buffer of state estimates from t-N up to t
 
-static state_t stateSweep;    // same as `state` except it does not include flow measurements
-static state_t stateFlow;     // same as `state` except it does not include sweep measurements
-static state_t stateLag;      // delayed state estimate, earliest state in the stateBuffer
-static state_t stateCorrect;  // corrected state estimate using transform compensation
+// static state_t state;
+static state_t stateTruth;   // ground truth estimate from lighthouse (w/o flow) with no delays
+static state_t stateSweep;   // estimate from lighthouse (w/o flow) with possible delays
+static state_t stateFlow;    // estimate from optical flow (w/o lighthouse) with no delays
 
-#define CORRECT_IN_MSEC 75  // period of pose1 - used for fusion/correction
-#define LATENCY 0           // latency in pose1 arriving
+static state_t stateSweepAnchor; // lighthouse anchor estimate
+static state_t stateFlowAnchor;  // flowdeck anchor estimate
+static state_t stateCorrect; // corrected state estimate using transform compensation
+
+static state_t stateLag;     // delayed state estimate, earliest state in the stateBuffer
+
+
+// Define period and delay in milliseconds
+#define PERIOD_MSEC 20  // Period of correction
+#define DELAY_MSEC 75    // Delay in estimates of Pose1
 
 static control_t control;
 
@@ -387,33 +395,6 @@ static void calcSensorToOutputLatency(const sensorData_t *sensorData)
   uint64_t outTimestamp = usecTimestamp();
   inToOutLatency = outTimestamp - sensorData->interruptTimestamp;
 }
-
-// static void compressState()
-// {
-//   stateCompressed.x = state.position.x * 1000.0f;
-//   stateCompressed.y = state.position.y * 1000.0f;
-//   stateCompressed.z = state.position.z * 1000.0f;
-
-//   stateCompressed.vx = state.velocity.x * 1000.0f;
-//   stateCompressed.vy = state.velocity.y * 1000.0f;
-//   stateCompressed.vz = state.velocity.z * 1000.0f;
-
-//   stateCompressed.ax = state.acc.x * 9.81f * 1000.0f;
-//   stateCompressed.ay = state.acc.y * 9.81f * 1000.0f;
-//   stateCompressed.az = (state.acc.z + 1) * 9.81f * 1000.0f;
-
-//   float const q[4] = {
-//     state.attitudeQuaternion.x,
-//     state.attitudeQuaternion.y,
-//     state.attitudeQuaternion.z,
-//     state.attitudeQuaternion.w};
-//   stateCompressed.quat = quatcompress(q);
-
-//   float const deg2millirad = ((float)M_PI * 1000.0f) / 180.0f;
-//   stateCompressed.rateRoll = sensorData.gyro.x * deg2millirad;
-//   stateCompressed.ratePitch = -sensorData.gyro.y * deg2millirad;
-//   stateCompressed.rateYaw = sensorData.gyro.z * deg2millirad;
-// }
 
 static void compressStateSweep()
 {
@@ -552,8 +533,6 @@ static void stabilizerTask(void* param)
   DEBUG_PRINT("Ready to fly.\n");
 
   unsigned int state_counter_index = 0;
-  unsigned int count_tick_msec = 0;
-  // bool use_laggy_state = false;
 
   /*
   Initializing variables for transforms
@@ -569,34 +548,45 @@ static void stabilizerTask(void* param)
     Twr_nd  : robot pose in world frame at past time (t - (n+d)), where d is delay of pose1 arriving
     Twcr_t  : corrected robot pose in world frame at current time t
   */
-  arm_matrix_instance_f32 Tor_t;
-  arm_matrix_instance_f32 TorInv_n;
-  arm_matrix_instance_f32 Twr_n;
-  arm_matrix_instance_f32 Twr_nd;
-  arm_matrix_instance_f32 Two_n;
-  arm_matrix_instance_f32 Twcr_t;
-  bool poseSweepReceived = false;
+  arm_matrix_instance_f32 Twr_n;    // Pose1 anchor at time past time n
+  arm_matrix_instance_f32 TorInv_n; // Pose2 anchor at past time n
+  arm_matrix_instance_f32 Two_n;    // Combined anchors at time past time n
+  arm_matrix_instance_f32 Tor_t;    // Pose2 transform at current time t
+  arm_matrix_instance_f32 Twcr_t;   // Corrected pose at current time t
+  arm_matrix_instance_f32 I;        // identity matrix
 
   // Create arrays to store transforms
   static float32_t arrayTor_t[16];
   static float32_t arrayTorInv_n[16];
-  static float32_t arrayTwr_nd[16];
-  // static float32_t arratTwcr_t[16];
+  static float32_t arrayTwr_n[16];
+
+  // Create buffers for storing the anchors. First determine size of buffer.
+  unsigned int size_of_buffer = 0;
+  if (DELAY_MSEC <= PERIOD_MSEC) { size_of_buffer = 1; }
+  else { size_of_buffer = (int) (DELAY_MSEC / PERIOD_MSEC); }
+
+  state_t p1Buffer[size_of_buffer];
+  state_t p2Buffer[size_of_buffer];
+  unsigned int set_idx = 0; // index for filling the buffer
+  unsigned int get_idx = 0; // index for getting elements from the buffer
 
   // Initialize identity matrix with only zeroes currently
   static float32_t tmp[16] = {
     1, 0, 0, 0,
     0, 1, 0, 0,
-    0, 0, 0, 1,
+    0, 0, 1, 0,
     0, 0, 0, 1,
   }; // initialize to zeroes
-  arm_matrix_instance_f32 I;
-  arm_mat_init_f32(&I, srcRows, srcColumns, (float32_t *)tmp);
+
+  // Initialize transforms to identity in the beginning
   arm_mat_init_f32(&Twr_n, srcRows, srcColumns, (float32_t *)tmp);
-  arm_mat_init_f32(&Twr_nd, srcRows, srcColumns, (float32_t *)tmp);
   arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)tmp);
   arm_mat_init_f32(&Two_n, srcRows, srcColumns, (float32_t *)tmp);
   arm_mat_init_f32(&Twcr_t, srcRows, srcColumns, (float32_t *)tmp);
+  arm_mat_init_f32(&I, srcRows, srcColumns, (float32_t *)tmp);
+
+  // counter for time in milliseconds
+  unsigned int t_msec = 0;
 
   while(1) {
     // The sensor should unlock at 1kHz
@@ -626,6 +616,7 @@ static void stabilizerTask(void* param)
 
       // stateEstimator(&state, &sensorData, &control, tick);
       stateEstimator(&stateSweep, &stateFlow, &sensorData, &control, tick);
+      memcpy(&stateTruth, &stateSweep, sizeof(state_t)); // make a copy of stateSweep as ground truth
       compressStateSweep();
       compressStateFlow();
 
@@ -651,57 +642,62 @@ static void stabilizerTask(void* param)
       }
 
 
-
       /*
         LATENCY COMPENSATION ROUTINE
       */
 
-      /* 1.
-        Create a copy of stateFlow onto stateCorrect to ensure
-        same velocity, acceleration, quaternion estimates are used for stateCorrect.
+      /*  Create a copy of stateTruth onto stateCorrect to ensure
+          same velocity, acceleration, quaternion estimates are used for stateCorrect.
       */
-      memcpy(&stateCorrect, &stateFlow, sizeof(state_t));
+      memcpy(&stateCorrect, &stateTruth, sizeof(state_t));
 
-      /* 2.
-        Compute transforms:
-          Tor_t   : robot pose in odometry frame at current time t
-          TorInv_n: odometry pose in robot frame at past time (t - n) , n is period of pose1
-          Twr_nd  : robot pose in world frame at past time (t - (n+d)), d is delay of pose1 arriving
-          Two_n   : odometry pose in world frame at past time (t - n)
-          Twcr_t  : corrected robot pose in world frame at current time t
+      /*  Get current Pose2 (stateFlow) estimate at time t
+          First we get array of arrayTor_t and then use it create matrix Tor_t
       */
-
-      // Get the current transform of pose2 from odometry frame
-      // First we get array of arrayTor_t and then use it create matrix Tor_t
       computeTransform(arrayTor_t, &stateFlow);
       arm_mat_init_f32(&Tor_t, srcRows, srcColumns, (float32_t *)arrayTor_t);
 
-      // Get the periodic/sparse transform of pose1 - stateSweep while account for latency
-      if (count_tick_msec >= (CORRECT_IN_MSEC - LATENCY) && poseSweepReceived == false) {
-        poseSweepReceived = true;
-        computeTransform(arrayTwr_nd, &stateSweep);
-        arm_mat_init_f32(&Twr_nd, srcRows, srcColumns, (float32_t *)arrayTwr_nd);
-      }
-
-      // Get the inverse transform of pose2 during the correction step
-      if (tick % CORRECT_IN_MSEC == 0) {
-        computeTransformInverse(arrayTorInv_n, &stateFlow);  // computes inverse of Tor
-        arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)arrayTorInv_n);
-
-        arm_mat_init_f32(&Twr_n, srcRows, srcColumns, (float32_t *) Twr_nd.pData);
-
-        count_tick_msec = 0;
-        poseSweepReceived = false;
-      }
-      count_tick_msec += 1;
-
-      /* 3. 
-        Perform corrected robot pose in world frame
-        Twcr_t  = Twr_nd * TorInv_n * Tor_t
-                = Two_n * Tor_t
+      /* Populate the two buffers
       */
-      mat_mult(&Twr_nd, &TorInv_n, &Two_n);
-      mat_mult(&Two_n, &Tor_t, &Twcr_t);
+      if (t_msec % PERIOD_MSEC == 0) {
+        memcpy( &p1Buffer[set_idx % size_of_buffer], 
+                &stateSweep, 
+                sizeof(state_t));
+        memcpy( &p2Buffer[set_idx % size_of_buffer], 
+                &stateFlow, 
+                sizeof(state_t));
+        set_idx++;
+      }
+
+      /* Update the two anchors.
+      */
+      if (t_msec >= DELAY_MSEC) {
+        memcpy( &stateSweepAnchor, 
+                &p1Buffer[get_idx % size_of_buffer], 
+                sizeof(state_t));
+        computeTransform(arrayTwr_n, &stateSweepAnchor);
+        arm_mat_init_f32(&Twr_n, srcRows, srcColumns, (float32_t *)arrayTwr_n);
+        
+        memcpy( &stateFlowAnchor, 
+                &p2Buffer[get_idx % size_of_buffer], 
+                sizeof(state_t));
+        computeTransformInverse(arrayTorInv_n, &stateFlowAnchor);
+        arm_mat_init_f32(&TorInv_n, srcRows, srcColumns, (float32_t *)arrayTorInv_n);
+        get_idx++;
+      }
+
+      /* Apply correction.
+        If time < period + delay, simply use odometry pose estimate (stateFlow)
+        Else apply the transforms equation.
+      */
+      if (t_msec < DELAY_MSEC + PERIOD_MSEC) {
+        computeTransform(arrayTor_t, &stateFlow);
+        arm_mat_init_f32(&Twcr_t, srcRows, srcColumns, (float32_t *)arrayTor_t);
+      }
+      else {
+        mat_mult(&Twr_n, &TorInv_n, &Two_n);
+        mat_mult(&Two_n, &Tor_t, &Twcr_t);
+      }
 
       /* 5.
         Update stateCorrect's position and euler estimates from
@@ -747,13 +743,12 @@ static void stabilizerTask(void* param)
       }
 
 
-
-      commanderGetSetpoint(&setpoint, &stateFlow);
+      commanderGetSetpoint(&setpoint, &stateCorrect);
       compressSetpoint();
 
-      sitAwUpdateSetpoint(&setpoint, &sensorData, &stateFlow);
+      sitAwUpdateSetpoint(&setpoint, &sensorData, &stateCorrect);
 
-      controller(&control, &setpoint, &sensorData, &stateFlow, tick);
+      controller(&control, &setpoint, &sensorData, &stateCorrect, tick);
 
       checkEmergencyStopTimeout();
 
@@ -773,6 +768,7 @@ static void stabilizerTask(void* param)
     }
     calcSensorToOutputLatency(&sensorData);
     tick++;
+    t_msec++;
     STATS_CNT_RATE_EVENT(&stabilizerRate);
   }
 }
@@ -1059,16 +1055,11 @@ LOG_ADD(LOG_INT16, ay, &setpointCompressed.ay)
 LOG_ADD(LOG_INT16, az, &setpointCompressed.az)
 LOG_GROUP_STOP(ctrltargetZ)
 
-// LOG_GROUP_START(stabilizer)
-// LOG_ADD(LOG_FLOAT, roll, &state.attitude.roll)
-// LOG_ADD(LOG_FLOAT, pitch, &state.attitude.pitch)
-// LOG_ADD(LOG_FLOAT, yaw, &state.attitude.yaw)
-// LOG_ADD(LOG_FLOAT, thrust, &control.thrust)
 
 LOG_GROUP_START(stabilizer)
-LOG_ADD(LOG_FLOAT, roll, &stateSweep.attitude.roll)
-LOG_ADD(LOG_FLOAT, pitch, &stateSweep.attitude.pitch)
-LOG_ADD(LOG_FLOAT, yaw, &stateSweep.attitude.yaw)
+LOG_ADD(LOG_FLOAT, roll, &stateTruth.attitude.roll)
+LOG_ADD(LOG_FLOAT, pitch, &stateTruth.attitude.pitch)
+LOG_ADD(LOG_FLOAT, yaw, &stateTruth.attitude.yaw)
 LOG_ADD(LOG_FLOAT, thrust, &control.thrust)
 
 STATS_CNT_RATE_LOG_ADD(rtStab, &stabilizerRate)
@@ -1119,32 +1110,13 @@ LOG_GROUP_START(controller)
 LOG_ADD(LOG_INT16, ctr_yaw, &control.yaw)
 LOG_GROUP_STOP(controller)
 
-// LOG_GROUP_START(stateEstimate)
-// LOG_ADD(LOG_FLOAT, x, &state.position.x)
-// LOG_ADD(LOG_FLOAT, y, &state.position.y)
-// LOG_ADD(LOG_FLOAT, z, &state.position.z)
-
-// LOG_ADD(LOG_FLOAT, vx, &state.velocity.x)
-// LOG_ADD(LOG_FLOAT, vy, &state.velocity.y)
-// LOG_ADD(LOG_FLOAT, vz, &state.velocity.z)
-
-// LOG_ADD(LOG_FLOAT, ax, &state.acc.x)
-// LOG_ADD(LOG_FLOAT, ay, &state.acc.y)
-// LOG_ADD(LOG_FLOAT, az, &state.acc.z)
-
-// LOG_ADD(LOG_FLOAT, roll, &state.attitude.roll)
-// LOG_ADD(LOG_FLOAT, pitch, &state.attitude.pitch)
-// LOG_ADD(LOG_FLOAT, yaw, &state.attitude.yaw)
-
-// LOG_ADD(LOG_FLOAT, qx, &state.attitudeQuaternion.x)
-// LOG_ADD(LOG_FLOAT, qy, &state.attitudeQuaternion.y)
-// LOG_ADD(LOG_FLOAT, qz, &state.attitudeQuaternion.z)
-// LOG_ADD(LOG_FLOAT, qw, &state.attitudeQuaternion.w)
-// LOG_GROUP_STOP(stateEstimate)
-
 
 
 LOG_GROUP_START(stateEstimate)
+LOG_ADD(LOG_FLOAT, x_Gt, &stateTruth.position.x)
+LOG_ADD(LOG_FLOAT, y_Gt, &stateTruth.position.y)
+LOG_ADD(LOG_FLOAT, z_Gt, &stateTruth.position.z)
+
 LOG_ADD(LOG_FLOAT, x_Lh, &stateSweep.position.x)
 LOG_ADD(LOG_FLOAT, y_Lh, &stateSweep.position.y)
 LOG_ADD(LOG_FLOAT, z_Lh, &stateSweep.position.z)
@@ -1157,13 +1129,17 @@ LOG_ADD(LOG_FLOAT, x_Cr, &stateCorrect.position.x)
 LOG_ADD(LOG_FLOAT, y_Cr, &stateCorrect.position.y)
 LOG_ADD(LOG_FLOAT, z_Cr, &stateCorrect.position.z)
 
-LOG_ADD(LOG_FLOAT, vx, &stateSweep.velocity.x)
-LOG_ADD(LOG_FLOAT, vy, &stateSweep.velocity.y)
-LOG_ADD(LOG_FLOAT, vz, &stateSweep.velocity.z)
+LOG_ADD(LOG_FLOAT, vx, &stateCorrect.velocity.x)
+LOG_ADD(LOG_FLOAT, vy, &stateCorrect.velocity.y)
+LOG_ADD(LOG_FLOAT, vz, &stateCorrect.velocity.z)
 
-LOG_ADD(LOG_FLOAT, ax, &stateSweep.acc.x)
-LOG_ADD(LOG_FLOAT, ay, &stateSweep.acc.y)
-LOG_ADD(LOG_FLOAT, az, &stateSweep.acc.z)
+LOG_ADD(LOG_FLOAT, ax, &stateCorrect.acc.x)
+LOG_ADD(LOG_FLOAT, ay, &stateCorrect.acc.y)
+LOG_ADD(LOG_FLOAT, az, &stateCorrect.acc.z)
+
+LOG_ADD(LOG_FLOAT, roll_Gt, &stateTruth.attitude.roll)
+LOG_ADD(LOG_FLOAT, pitch_Gt, &stateTruth.attitude.pitch)
+LOG_ADD(LOG_FLOAT, yaw_Gt, &stateTruth.attitude.yaw)
 
 LOG_ADD(LOG_FLOAT, roll_Lh, &stateSweep.attitude.roll)
 LOG_ADD(LOG_FLOAT, pitch_Lh, &stateSweep.attitude.pitch)
@@ -1181,26 +1157,5 @@ LOG_ADD(LOG_FLOAT, qx, &stateSweep.attitudeQuaternion.x)
 LOG_ADD(LOG_FLOAT, qy, &stateSweep.attitudeQuaternion.y)
 LOG_ADD(LOG_FLOAT, qz, &stateSweep.attitudeQuaternion.z)
 LOG_ADD(LOG_FLOAT, qw, &stateSweep.attitudeQuaternion.w)
+
 LOG_GROUP_STOP(stateEstimate)
-
-
-
-// LOG_GROUP_START(stateEstimateZ)
-// LOG_ADD(LOG_INT16, x, &stateCompressed.x)                 // position - mm
-// LOG_ADD(LOG_INT16, y, &stateCompressed.y)
-// LOG_ADD(LOG_INT16, z, &stateCompressed.z)
-
-// LOG_ADD(LOG_INT16, vx, &stateCompressed.vx)               // velocity - mm / sec
-// LOG_ADD(LOG_INT16, vy, &stateCompressed.vy)
-// LOG_ADD(LOG_INT16, vz, &stateCompressed.vz)
-
-// LOG_ADD(LOG_INT16, ax, &stateCompressed.ax)               // acceleration - mm / sec^2
-// LOG_ADD(LOG_INT16, ay, &stateCompressed.ay)
-// LOG_ADD(LOG_INT16, az, &stateCompressed.az)
-
-// LOG_ADD(LOG_UINT32, quat, &stateCompressed.quat)           // compressed quaternion, see quatcompress.h
-
-// LOG_ADD(LOG_INT16, rateRoll, &stateCompressed.rateRoll)   // angular velocity - milliradians / sec
-// LOG_ADD(LOG_INT16, ratePitch, &stateCompressed.ratePitch)
-// LOG_ADD(LOG_INT16, rateYaw, &stateCompressed.rateYaw)
-// LOG_GROUP_STOP(stateEstimateZ)

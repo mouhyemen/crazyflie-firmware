@@ -548,7 +548,7 @@ LOG_ADD(LOG_UINT8, motorPass, &motorPass)
 LOG_ADD(LOG_UINT16, motorTestCount, &motorTestCount)
 LOG_GROUP_STOP(health)
 
-LOG_GROUP_START(ctrltarget)
+LOG_GROUP_START(setpoint)
 LOG_ADD(LOG_FLOAT, x, &setpoint.position.x)
 LOG_ADD(LOG_FLOAT, y, &setpoint.position.y)
 LOG_ADD(LOG_FLOAT, z, &setpoint.position.z)
@@ -566,9 +566,9 @@ LOG_ADD(LOG_FLOAT, pitch, &setpoint.attitude.pitch)
 LOG_ADD(LOG_FLOAT, yaw, &setpoint.attitudeRate.yaw)
 
 LOG_ADD(LOG_FLOAT, thrust, &setpoint.thrust)
-LOG_GROUP_STOP(ctrltarget)
+LOG_GROUP_STOP(setpoint)
 
-LOG_GROUP_START(ctrltargetZ)
+LOG_GROUP_START(setpointZ)
 LOG_ADD(LOG_INT16, x, &setpointCompressed.x)   // position - mm
 LOG_ADD(LOG_INT16, y, &setpointCompressed.y)
 LOG_ADD(LOG_INT16, z, &setpointCompressed.z)
@@ -580,7 +580,7 @@ LOG_ADD(LOG_INT16, vz, &setpointCompressed.vz)
 LOG_ADD(LOG_INT16, ax, &setpointCompressed.ax) // acceleration - mm / sec^2
 LOG_ADD(LOG_INT16, ay, &setpointCompressed.ay)
 LOG_ADD(LOG_INT16, az, &setpointCompressed.az)
-LOG_GROUP_STOP(ctrltargetZ)
+LOG_GROUP_STOP(setpointZ)
 
 LOG_GROUP_START(stabilizer)
 LOG_ADD(LOG_FLOAT, roll, &state.attitude.roll)

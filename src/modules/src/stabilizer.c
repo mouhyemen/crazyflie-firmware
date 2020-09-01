@@ -61,6 +61,10 @@ static bool startPropTest = false;
 
 uint32_t inToOutLatency;
 
+
+// Parameter for enabling/disabling flying
+static bool doFly = true;
+
 // State variables for the stabilizer
 static setpoint_t setpoint;
 static sensorData_t sensorData;
@@ -286,7 +290,9 @@ static void stabilizerTask(void* param)
       if (emergencyStop) {
         powerStop();
       } else {
-        powerDistribution(&control);
+        if (doFly) {
+          powerDistribution(&control);
+        }
       }
 
       // Log data to uSD card if configured
@@ -534,6 +540,10 @@ PARAM_ADD(PARAM_UINT8, estimator, &estimatorType)
 PARAM_ADD(PARAM_UINT8, controller, &controllerType)
 PARAM_ADD(PARAM_UINT8, stop, &emergencyStop)
 PARAM_GROUP_STOP(stabilizer)
+
+PARAM_GROUP_START(commander)
+PARAM_ADD(PARAM_UINT8, doFly, &doFly)
+PARAM_GROUP_STOP(commander)
 
 LOG_GROUP_START(health)
 LOG_ADD(LOG_FLOAT, motorVarXM1, &accVarX[0])

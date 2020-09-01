@@ -583,9 +583,9 @@ LOG_ADD(LOG_INT16, az, &setpointCompressed.az)
 LOG_GROUP_STOP(setpointZ)
 
 LOG_GROUP_START(stabilizer)
-LOG_ADD(LOG_FLOAT, roll, &state.attitude.roll)
-LOG_ADD(LOG_FLOAT, pitch, &state.attitude.pitch)
-LOG_ADD(LOG_FLOAT, yaw, &state.attitude.yaw)
+LOG_ADD(LOG_FLOAT, roll, &control.roll)
+LOG_ADD(LOG_FLOAT, pitch, &control.pitch)
+LOG_ADD(LOG_FLOAT, yaw, &control.yaw)
 LOG_ADD(LOG_FLOAT, thrust, &control.thrust)
 
 STATS_CNT_RATE_LOG_ADD(rtStab, &stabilizerRate)

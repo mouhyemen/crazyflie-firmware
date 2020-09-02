@@ -64,12 +64,15 @@ uint32_t inToOutLatency;
 
 // Parameter for enabling/disabling flying
 static bool doFly = true;
+static bool enSetpointModify = false;
 
 // State variables for the stabilizer
 static setpoint_t setpoint;
+static setpoint_t setpointNominal;
 static sensorData_t sensorData;
 static state_t state;
 static control_t control;
+static control_t controlModified;
 
 static StateEstimatorType estimatorType;
 static ControllerType controllerType;
@@ -117,7 +120,8 @@ static struct {
   int16_t ax;
   int16_t ay;
   int16_t az;
-} setpointCompressed;
+} setpointCompressed, setpointCompressedNominal;
+
 
 static float accVarX[NBR_OF_MOTORS];
 static float accVarY[NBR_OF_MOTORS];
@@ -181,6 +185,21 @@ static void compressSetpoint()
   setpointCompressed.ax = setpoint.acceleration.x * 1000.0f;
   setpointCompressed.ay = setpoint.acceleration.y * 1000.0f;
   setpointCompressed.az = setpoint.acceleration.z * 1000.0f;
+}
+
+static void compressSetpointNominal()
+{
+  setpointCompressedNominal.x = setpointNominal.position.x * 1000.0f;
+  setpointCompressedNominal.y = setpointNominal.position.y * 1000.0f;
+  setpointCompressedNominal.z = setpointNominal.position.z * 1000.0f;
+
+  setpointCompressedNominal.vx = setpointNominal.velocity.x * 1000.0f;
+  setpointCompressedNominal.vy = setpointNominal.velocity.y * 1000.0f;
+  setpointCompressedNominal.vz = setpointNominal.velocity.z * 1000.0f;
+
+  setpointCompressedNominal.ax = setpointNominal.acceleration.x * 1000.0f;
+  setpointCompressedNominal.ay = setpointNominal.acceleration.y * 1000.0f;
+  setpointCompressedNominal.az = setpointNominal.acceleration.z * 1000.0f;
 }
 
 void stabilizerInit(StateEstimatorType estimator)
@@ -278,21 +297,39 @@ static void stabilizerTask(void* param)
       stateEstimator(&state, &sensorData, &control, tick);
       compressState();
 
-      commanderGetSetpoint(&setpoint, &state);
-      compressSetpoint();
+      commanderGetSetpoint(&setpointNominal, &state);
+      compressSetpointNominal();
 
-      sitAwUpdateSetpoint(&setpoint, &sensorData, &state);
+      sitAwUpdateSetpoint(&setpointNominal, &sensorData, &state);
 
-      controller(&control, &setpoint, &sensorData, &state, tick);
+      controller(&control, &setpointNominal, &sensorData, &state, tick);
 
       checkEmergencyStopTimeout();
 
       if (emergencyStop) {
         powerStop();
       } else {
-        if (doFly) {
-          powerDistribution(&control);
+        if (enSetpointModify) {
+          // TODO: Receive roll/pitch/yaw/thrust setpoint from APP layer
+          commanderGetSetpoint(&setpoint, &state);
+          compressSetpoint();
+
+          sitAwUpdateSetpoint(&setpoint, &sensorData, &state);
+
+          controller(&controlModified, &setpoint, &sensorData, &state, tick);
+
+          checkEmergencyStopTimeout();
+
+          if (emergencyStop) {
+            powerStop();
+          } else {
+            if (doFly)
+              powerDistribution(&controlModified);
+          }
+
         }
+        if (doFly)
+          powerDistribution(&control);
       }
 
       // Log data to uSD card if configured
@@ -543,6 +580,7 @@ PARAM_GROUP_STOP(stabilizer)
 
 PARAM_GROUP_START(commander)
 PARAM_ADD(PARAM_UINT8, doFly, &doFly)
+PARAM_ADD(PARAM_UINT8, enModify, &enSetpointModify)
 PARAM_GROUP_STOP(commander)
 
 LOG_GROUP_START(health)
